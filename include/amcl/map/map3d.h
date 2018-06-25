@@ -26,13 +26,13 @@
 #include <pcl/registration/transforms.h>
 
 #include <boost/make_shared.hpp> //共享指针
-#include <unordered_map>
+//#include <unordered_map>
 
 using namespace std;
 
 typedef pcl::PointNormal PointNormalT;
 // 定义点云使用的格式：这里用的是XYZRGB
-typedef pcl::PointXYZRGB PointT; 
+typedef pcl::PointXYZ PointT; 
 typedef pcl::PointCloud<PointT> PointCloud;
 typedef pcl::PointCloud<PointNormalT> PointCloudWithNormals;
 
@@ -49,10 +49,13 @@ class Map3dCloud
 		void load_gloabalmap(const string &globalmap_pcd_dir);
 		void generate_refmap(const Eigen::Isometry3d &cameraPose);
 		//void set_currmap(const PointCloud::Ptr currCloud,const Eigen::Isometry3d &cameraPose);
-	private:
+
+		
 		PointCloud::Ptr global_map_;//全局三维点云地图
 		PointCloud::Ptr ref_map_;//参考子地图点云
-		//PointCloud::Ptr curr_map_;//当前观测的局部地图点云
+	private:
+
+		
 		
 		ros::NodeHandle nh_;
 		ros::NodeHandle private_nh_;

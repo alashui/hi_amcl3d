@@ -982,7 +982,7 @@ AmclNode::~AmclNode()
   delete laser_scan_sub_;
   delete tfb_;
   delete tf_;
-  // TODO: delete everything allocated in constructor
+  //TODO: delete everything allocated in constructor
 }
 
 bool
@@ -1051,10 +1051,11 @@ AmclNode::uniformPoseGenerator(void* arg)
 
 //这里所谓的globalLocalization就是在地图范围内产生均匀分布的粒子
 bool
-AmclNode::globalLocalizationCallback(std_srvs::Empty::Request& req,
-                                     std_srvs::Empty::Response& res)
+AmclNode::globalLocalizationCallback( std_srvs::Empty::Request& req,
+                                      std_srvs::Empty::Response& res ) 
 {
-  if( map_ == NULL ) {
+  if( map_ == NULL ) 
+  {
     return true;
   }
   boost::recursive_mutex::scoped_lock gl(configuration_mutex_);
@@ -1225,16 +1226,14 @@ AmclNode::laserReceived(const sensor_msgs::LaserScanConstPtr& laser_scan)
   // 
   bool resampled = false;
   // If the robot has moved, update the filter
-  if(lasers_update_[laser_index])　//观测更新及重采样过程
-  {
-    
+  if(lasers_update_[laser_index])//观测更新及重采样过程
+  {   
     AMCLLaserData ldata;
     //////////////////////////////////////////////////////////////
-    // 对消息数据laser_scan作变换，变换到base_frame坐标系下
     //    0.初始化sonsor 和　扫描数据的数量
-    //    1.先获取在base_frame坐标系下的扫描最小角和增量角
-    //    ２.确定最大最小距离范围
-    //    3.从消息数据laser_scan复制数据到ldata.ranges
+    //    1.先获取扫描最小角和增量角，并变换到base_frame坐标系下
+    //    ２.确定最大最小扫描距离范围
+    //    3.按扫描最小角和增量角以及距离范围将消息数据laser_scan整理存到到ldata.ranges
     //    ４.观测更新，计算粒子权值 
     //    ５．重采样粒子集
     //　  ６．发布粒子集
@@ -1260,9 +1259,9 @@ AmclNode::laserReceived(const sensor_msgs::LaserScanConstPtr& laser_scan)
       tf_->transformQuaternion(base_frame_id_, min_q, min_q);
       tf_->transformQuaternion(base_frame_id_, inc_q, inc_q);
     }
-    catch　(tf::TransformException& e)
+    catch(tf::TransformException& e)
     {
-      ROS_WARN(　"Unable to transform min/max laser angles into base frame: %s",e.what()　);
+      ROS_WARN("Unable to transform min/max laser angles into base frame: %s",e.what());
       return;
     }
 
@@ -1323,7 +1322,7 @@ AmclNode::laserReceived(const sensor_msgs::LaserScanConstPtr& laser_scan)
     // Publish the resulting cloud
     // TODO: set maximum rate for publishing
     ////6.发布粒子集
-    if (!m_force_update)//发布粒子集(无运动强制更新的情况不发布)
+    if (!m_force_update)//发布粒子集(无运动强制更新粒子的情况不发布)
     {
       geometry_msgs::PoseArray cloud_msg;
       cloud_msg.header.stamp = ros::Time::now();
@@ -1340,7 +1339,7 @@ AmclNode::laserReceived(const sensor_msgs::LaserScanConstPtr& laser_scan)
     }
   }
 
-  if(resampled || force_publication)//选取总权值最大一类粒子子集（cluster），发布机器人位姿（amcl_pose）
+  if(resampled || force_publication)//选取总权值最大一类粒子子集（cluster），根据其均值发布机器人位姿（amcl_pose）
   {
     // Read out the current hypotheses
     double max_weight = 0.0;

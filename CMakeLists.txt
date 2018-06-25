@@ -1,13 +1,17 @@
 cmake_minimum_required(VERSION 2.8.3)
 project(amcl)
 
+set( CMAKE_CXX_FLAGS "-std=c++11 -march=native -O3" )
+
 find_package(catkin REQUIRED
         COMPONENTS
             rosbag
             roscpp
             tf
+            tf_conversions
             dynamic_reconfigure
             nav_msgs
+            pcl_ros
         )
 
 find_package(Boost REQUIRED)
@@ -15,6 +19,7 @@ find_package(Boost REQUIRED)
 # dynamic reconfigure
 generate_dynamic_reconfigure_options(
     cfg/AMCL.cfg
+    cfg/AMCL3D.cfg
 )
 
 catkin_package(
@@ -23,9 +28,23 @@ catkin_package(
         roscpp
         dynamic_reconfigure
         tf
+        tf_conversions
+        pcl_ros
   INCLUDE_DIRS include
   LIBRARIES amcl_sensors amcl_map amcl_pf
 )
+
+
+# eigen 
+include_directories( "/usr/include/eigen3/" )
+
+# pcl 
+find_package( PCL 1.7 REQUIRED )
+ADD_DEFINITIONS( ${PCL_DEFINITIONS} )
+include_directories( ${PCL_INCLUDE_DIRS} )
+add_definitions( ${PCL_DEFINITIONS} )
+
+
 
 include_directories(include/amcl include/amcl/map include/amcl/sensors include/amcl/pf)
 include_directories(${catkin_INCLUDE_DIRS} ${Boost_INCLUDE_DIRS})
@@ -43,23 +62,33 @@ add_library(amcl_map
                     src/amcl/map/map_cspace.cpp
                     src/amcl/map/map_range.c
                     src/amcl/map/map_store.c
-                    src/amcl/map/map_draw.c)
+                    src/amcl/map/map_draw.c
+                    src/amcl/map/map3d.cpp)
+target_link_libraries(amcl_map ${PCL_LIBRARIES})                   
 
 add_library(amcl_sensors
                     src/amcl/sensors/amcl_sensor.cpp
                     src/amcl/sensors/amcl_odom.cpp
-                    src/amcl/sensors/amcl_laser.cpp)
+                    src/amcl/sensors/amcl_laser.cpp
+                    src/amcl/sensors/amcl_depthcamera.cpp)
 target_link_libraries(amcl_sensors amcl_map amcl_pf)
 
 
-add_executable(amcl
-                       src/amcl_node.cpp)
+add_executable(amcl src/amcl_node.cpp)
 add_dependencies(amcl amcl_gencfg)
-
 target_link_libraries(amcl
     amcl_sensors amcl_map amcl_pf
     ${Boost_LIBRARIES}
+    ${catkin_LIBRARIES}   
+)
+
+add_executable(amcl3d src/amcl3d_node.cpp)
+add_dependencies(amcl3d amcl_gencfg)
+target_link_libraries(amcl3d
+    amcl_sensors amcl_map amcl_pf
+    ${Boost_LIBRARIES}
     ${catkin_LIBRARIES}
+    ${PCL_LIBRARIES} 
 )
 
 install( TARGETS

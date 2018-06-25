@@ -34,7 +34,8 @@
 #include "map/map.h"
 #include "pf/pf.h"
 #include "sensors/amcl_odom.h"
-#include "sensors/amcl_laser.h"
+//#include "sensors/amcl_laser.h"
+#include "sensors/amcl_depthcamera.h"
 
 #include "ros/assert.h"
 
@@ -42,7 +43,10 @@
 #include "ros/ros.h"
 
 // Messages that I need
-#include "sensor_msgs/LaserScan.h"
+//#include "sensor_msgs/LaserScan.h"
+#include <sensor_msgs/PointCloud2.h>
+#include "pcl_ros/point_cloud.h"
+
 #include "geometry_msgs/PoseWithCovarianceStamped.h"
 #include "geometry_msgs/PoseArray.h"
 #include "geometry_msgs/Pose.h"
@@ -56,15 +60,26 @@
 #include "tf/message_filter.h"
 #include "tf/tf.h"
 #include "message_filters/subscriber.h"
+//#include <tf_conversions/tf_eigen.h>
+
+#include "tf/transform_datatypes.h"
+#include "Eigen/Core"
+#include "Eigen/Geometry"
+#include "tf_conversions/tf_eigen.h"
+
 
 // Dynamic_reconfigure
 #include "dynamic_reconfigure/server.h"
-#include "amcl/AMCLConfig.h"
+//#include "amcl/AMCLConfig.h"
+#include "amcl/AMCL3DConfig.h"
 
 // Allows AMCL to run from bag file
 #include <rosbag/bag.h>
 #include <rosbag/view.h>
 #include <boost/foreach.hpp>
+
+//#include <Eigen/core>
+//#include <Eigen/Geometry>
 
 #define NEW_UNIFORM_SAMPLING 1
 
@@ -106,7 +121,8 @@ angle_diff(double a, double b)
     return(d2);
 }
 
-static const std::string scan_topic_ = "scan";
+//static const std::string scan_topic_ = "scan";
+static const std::string pcld_topic_ = "/camera/depth_registered/points";
 
 class AmclNode
 {
@@ -157,7 +173,9 @@ class AmclNode
     bool setMapCallback(nav_msgs::SetMap::Request& req,
                         nav_msgs::SetMap::Response& res);
 
-    void laserReceived(const sensor_msgs::LaserScanConstPtr& laser_scan);
+    //void laserReceived(const sensor_msgs::LaserScanConstPtr& laser_scan);
+    void pointcloudReceived(const sensor_msgs::PointCloud2ConstPtr& pcldmsg);
+
     void initialPoseReceived(const geometry_msgs::PoseWithCovarianceStampedConstPtr& msg);
     void handleInitialPoseMessage(const geometry_msgs::PoseWithCovarianceStamped& msg);
     void mapReceived(const nav_msgs::OccupancyGridConstPtr& msg);
@@ -171,7 +189,7 @@ class AmclNode
     double getYaw(tf::Pose& t);
 
     //parameter for what odom to use
-    std::string odom_frame_id_;
+    std::string  odom_frame_id_;
 
     //paramater to store latest odom pose
     tf::Stamped<tf::Pose> latest_odom_pose_;
@@ -194,12 +212,27 @@ class AmclNode
     int sx, sy;
     double resolution;
 
-    message_filters::Subscriber<sensor_msgs::LaserScan>* laser_scan_sub_;
-    tf::MessageFilter<sensor_msgs::LaserScan>* laser_scan_filter_;
+    //Map3dCloud* map3d_;
+    float ndt_cellSize_,ndt_subsamplingFactor_,ndt_clippingDistance_;
+    float iron_matchingTolerance_,iron_entropyThreshold_,iron_neighborSearchRadius_;
+    std::string global_map3d_dir_;
+
+    //message_filters::Subscriber<sensor_msgs::LaserScan>* laser_scan_sub_;
+    //tf::MessageFilter<sensor_msgs::LaserScan>* laser_scan_filter_;
+    message_filters::Subscriber<sensor_msgs::PointCloud2>* pointcloud_sub_;
+    tf::MessageFilter<sensor_msgs::PointCloud2>* pointcloud_filter_;
+    
+
     ros::Subscriber initial_pose_sub_;
-    std::vector< AMCLLaser* > lasers_;
-    std::vector< bool > lasers_update_;
-    std::map< std::string, int > frame_to_laser_;
+
+
+    //std::vector< AMCLLaser* > lasers_;
+    //std::vector< bool > lasers_update_;
+    //std::map< std::string, int > frame_to_laser_;
+    std::vector< AMCLDepthCamera* > depthcameras_;
+    std::vector< bool > depthcameras_update_;
+    std::map< std::string, int > frame_to_depthcamera_;
+
 
     // Particle filter
     pf_t *pf_;
@@ -209,14 +242,17 @@ class AmclNode
     double d_thresh_, a_thresh_;
     int resample_interval_;
     int resample_count_;
-    double laser_min_range_;
-    double laser_max_range_;
+
+    //double laser_min_range_;
+    //double laser_max_range_;
 
     //Nomotion update control
     bool m_force_update;  // used to temporarily let amcl update samples even when no motion occurs...
 
     AMCLOdom* odom_;
-    AMCLLaser* laser_;
+
+    //AMCLLaser* laser_;
+    AMCLDepthCamera* depthcamera_; 
 
     ros::Duration cloud_pub_interval;
     ros::Time last_cloud_pub_time;
@@ -250,29 +286,37 @@ class AmclNode
     bool first_reconfigure_call_;
 
     boost::recursive_mutex configuration_mutex_;
-    dynamic_reconfigure::Server<amcl::AMCLConfig> *dsrv_;
-    amcl::AMCLConfig default_config_;
-    ros::Timer check_laser_timer_;
+    dynamic_reconfigure::Server<amcl::AMCL3DConfig> *dsrv_;
+    amcl::AMCL3DConfig default_config_;
+    //ros::Timer check_laser_timer_;
+    ros::Timer check_pcld_timer_;
 
-    int max_beams_, min_particles_, max_particles_;
+    int max_beams_, min_particles_, max_particles_;   
     double alpha1_, alpha2_, alpha3_, alpha4_, alpha5_;
     double alpha_slow_, alpha_fast_;
+/*
     double z_hit_, z_short_, z_max_, z_rand_, sigma_hit_, lambda_short_;
   //beam skip related params
     bool do_beamskip_;
     double beam_skip_distance_, beam_skip_threshold_, beam_skip_error_threshold_;
     double laser_likelihood_max_dist_;
+*/
+
     odom_model_t odom_model_type_;
     double init_pose_[3];
     double init_cov_[3];
-    laser_model_t laser_model_type_;
+    //laser_model_t laser_model_type_;
     bool tf_broadcast_;
 
-    void reconfigureCB(amcl::AMCLConfig &config, uint32_t level);
+    void reconfigureCB(amcl::AMCL3DConfig &config, uint32_t level);
 
-    ros::Time last_laser_received_ts_;
-    ros::Duration laser_check_interval_;
-    void checkLaserReceived(const ros::TimerEvent& event);
+    //ros::Time last_laser_received_ts_;
+    //ros::Duration laser_check_interval_;
+    //void checkLaserReceived(const ros::TimerEvent& event);
+    ros::Time last_pcld_received_ts_;
+    ros::Duration pcld_check_interval_;
+    void checkPcldReceived(const ros::TimerEvent& event);
+
 };
 
 std::vector<std::pair<int,int> > AmclNode::free_space_indices;
@@ -293,7 +337,7 @@ void sigintHandler(int sig)
 int
 main(int argc, char** argv)
 {
-  ros::init(argc, argv, "amcl");
+  ros::init(argc, argv, "amcl3d");
   ros::NodeHandle nh;
 
   //监听到程序是否接收到退出命令,或者中断命令等处理
@@ -353,10 +397,12 @@ AmclNode::AmclNode() :
         sent_first_transform_(false),
         latest_tf_valid_(false),
         map_(NULL),
+        //map3d_(NULL),
         pf_(NULL),
         resample_count_(0),
         odom_(NULL),
-        laser_(NULL),
+        //laser_(NULL),
+        depthcamera_(NULL),
 	     private_nh_("~"),
         initial_pose_hyp_(NULL),
         first_map_received_(false),
@@ -374,9 +420,15 @@ AmclNode::AmclNode() :
   private_nh_.param("save_pose_rate", tmp, 0.5);
   save_pose_period = ros::Duration(1.0/tmp);
 
-  private_nh_.param("laser_min_range", laser_min_range_, -1.0);
-  private_nh_.param("laser_max_range", laser_max_range_, -1.0);
-  private_nh_.param("laser_max_beams", max_beams_, 30);
+  //从参数服务其获取观测模型相关参数
+  private_nh_.param("ndt_cellSize", ndt_cellSize_, 0.1f);
+  private_nh_.param("ndt_subsamplingFactor", ndt_subsamplingFactor_, 0.8f);
+  private_nh_.param("ndt_clippingDistance", ndt_clippingDistance_, 5.0f);
+  private_nh_.param("iron_matchingTolerance", iron_matchingTolerance_, 0.2f);
+  private_nh_.param("iron_entropyThreshold", iron_entropyThreshold_, 0.75f);
+  private_nh_.param("iron_neighborSearchRadius", iron_neighborSearchRadius_, 0.8f);
+  private_nh_.param("global_map3d_dir", global_map3d_dir_, std::string("../data/result.pcd"));
+
   private_nh_.param("min_particles", min_particles_, 100);
   private_nh_.param("max_particles", max_particles_, 5000);
   private_nh_.param("kld_err", pf_err_, 0.01);
@@ -386,7 +438,11 @@ AmclNode::AmclNode() :
   private_nh_.param("odom_alpha3", alpha3_, 0.2);
   private_nh_.param("odom_alpha4", alpha4_, 0.2);
   private_nh_.param("odom_alpha5", alpha5_, 0.2);
-  
+
+/*
+  private_nh_.param("laser_min_range", laser_min_range_, -1.0);
+  private_nh_.param("laser_max_range", laser_max_range_, -1.0);
+  private_nh_.param("laser_max_beams", max_beams_, 30); 
   private_nh_.param("do_beamskip", do_beamskip_, false);
   private_nh_.param("beam_skip_distance", beam_skip_distance_, 0.5);
   private_nh_.param("beam_skip_threshold", beam_skip_threshold_, 0.3);
@@ -414,7 +470,8 @@ AmclNode::AmclNode() :
              tmp_model_type.c_str());
     laser_model_type_ = LASER_MODEL_LIKELIHOOD_FIELD;
   }
-
+*/
+  std::string tmp_model_type;
   private_nh_.param("odom_model_type", tmp_model_type, std::string("diff"));
   if(tmp_model_type == "diff")
     odom_model_type_ = ODOM_MODEL_DIFF;
@@ -464,16 +521,29 @@ AmclNode::AmclNode() :
   nomotion_update_srv_= nh_.advertiseService("request_nomotion_update", &AmclNode::nomotionUpdateCallback, this);//设置标志位，表示在机器人无运动时更新粒子
   set_map_srv_= nh_.advertiseService("set_map", &AmclNode::setMapCallback, this);//设置地图
 
-  laser_scan_sub_ = new message_filters::Subscriber<sensor_msgs::LaserScan>(nh_, scan_topic_, 100);
-  laser_scan_filter_ = new tf::MessageFilter<sensor_msgs::LaserScan>(*laser_scan_sub_,
+
+  pointcloud_sub_ = new message_filters::Subscriber<sensor_msgs::PointCloud2>(nh_,pcld_topic_,100); 
+  pointcloud_filter_ = new tf::MessageFilter<sensor_msgs::PointCloud2>(*pointcloud_sub_,
                                                                       *tf_, 
                                                                       odom_frame_id_, 
-                                                                      100);
+                                                                      100); 
+  pointcloud_filter_->registerCallback(boost::bind(&AmclNode::pointcloudReceived,this, _1));
+                                                                                         
+  //laser_scan_sub_ = new message_filters::Subscriber<sensor_msgs::LaserScan>(nh_, scan_topic_, 100);
+  //laser_scan_filter_ = new tf::MessageFilter<sensor_msgs::LaserScan>(*laser_scan_sub_,
+   //                                                                   *tf_, 
+   //                                                                   odom_frame_id_, 
+    //                                                                  100);
+
   //tf::MessageFilter的作用：
   //tf::MessageFilter will take a subscription to any ros Message with a Header and cache it until it is possible to transform it into the target frame. 
   //Callback to register with tf::MessageFilter to be called when transforms are available
-  laser_scan_filter_->registerCallback(boost::bind(&AmclNode::laserReceived,
-                                                   this, _1));
+  //laser_scan_filter_->registerCallback(boost::bind(&AmclNode::laserReceived,
+  //                                                 this, _1));
+
+
+
+
   initial_pose_sub_ = nh_.subscribe("initialpose", 2, &AmclNode::initialPoseReceived, this);
 
   //加载地图,两种方式:1.订阅map topic 2.请求地图(调用服务)
@@ -485,19 +555,24 @@ AmclNode::AmclNode() :
   }
   m_force_update = false;
 
-  dsrv_ = new dynamic_reconfigure::Server<amcl::AMCLConfig>(ros::NodeHandle("~"));
-  dynamic_reconfigure::Server<amcl::AMCLConfig>::CallbackType cb = boost::bind(&AmclNode::reconfigureCB, this, _1, _2);
+  dsrv_ = new dynamic_reconfigure::Server<amcl::AMCL3DConfig>(ros::NodeHandle("~"));
+  dynamic_reconfigure::Server<amcl::AMCL3DConfig>::CallbackType cb = boost::bind(&AmclNode::reconfigureCB, this, _1, _2);
   dsrv_->setCallback(cb);
 
   // 15s timer to warn on lack of receipt of laser scans, #5209
-  laser_check_interval_ = ros::Duration(15.0);
-  check_laser_timer_ = nh_.createTimer(laser_check_interval_, 
-                                       boost::bind(&AmclNode::checkLaserReceived, this, _1));
+  //laser_check_interval_ = ros::Duration(15.0);
+  //check_laser_timer_ = nh_.createTimer(laser_check_interval_, 
+                                       //boost::bind(&AmclNode::checkLaserReceived, this, _1));
+
+  pcld_check_interval_ = ros::Duration(15.0);
+  check_pcld_timer_ = nh_.createTimer(pcld_check_interval_, 
+                                       boost::bind(&AmclNode::checkPcldReceived, this, _1));                                     
+  
 }
 
 //动态配置参数服务,重新设置粒子滤波参数,设置运动模型参数,设置观测模型参数,订阅节点等,
 //就是AmclNode构造函数里做的事情
-void AmclNode::reconfigureCB(AMCLConfig &config, uint32_t level)
+void AmclNode::reconfigureCB(AMCL3DConfig &config, uint32_t level)
 {
   boost::recursive_mutex::scoped_lock cfl(configuration_mutex_);
 
@@ -521,20 +596,31 @@ void AmclNode::reconfigureCB(AMCLConfig &config, uint32_t level)
 
   resample_interval_ = config.resample_interval;
 
-  laser_min_range_ = config.laser_min_range;
-  laser_max_range_ = config.laser_max_range;
+
 
   gui_publish_period = ros::Duration(1.0/config.gui_publish_rate);
   save_pose_period = ros::Duration(1.0/config.save_pose_rate);
 
   transform_tolerance_.fromSec(config.transform_tolerance);
 
-  max_beams_ = config.laser_max_beams;
   alpha1_ = config.odom_alpha1;
   alpha2_ = config.odom_alpha2;
   alpha3_ = config.odom_alpha3;
   alpha4_ = config.odom_alpha4;
   alpha5_ = config.odom_alpha5;
+
+
+  ndt_cellSize_ = config.ndt_cellSize;
+  ndt_subsamplingFactor_ = config.ndt_subsamplingFactor;
+  ndt_clippingDistance_ = config.ndt_clippingDistance;
+  iron_matchingTolerance_ = config.iron_matchingTolerance;
+  iron_entropyThreshold_ = config.iron_entropyThreshold;
+  iron_neighborSearchRadius_ = config.iron_neighborSearchRadius;
+  global_map3d_dir_ = config.global_map3d_dir;
+/*
+  laser_min_range_ = config.laser_min_range;
+  laser_max_range_ = config.laser_max_range;
+  max_beams_ = config.laser_max_beams;
 
   z_hit_ = config.laser_z_hit;
   z_short_ = config.laser_z_short;
@@ -550,7 +636,7 @@ void AmclNode::reconfigureCB(AMCLConfig &config, uint32_t level)
     laser_model_type_ = LASER_MODEL_LIKELIHOOD_FIELD;
   else if(config.laser_model_type == "likelihood_field_prob")
     laser_model_type_ = LASER_MODEL_LIKELIHOOD_FIELD_PROB;
-
+*/
   if(config.odom_model_type == "diff")
     odom_model_type_ = ODOM_MODEL_DIFF;
   else if(config.odom_model_type == "omni")
@@ -572,9 +658,9 @@ void AmclNode::reconfigureCB(AMCLConfig &config, uint32_t level)
   alpha_fast_ = config.recovery_alpha_fast;
   tf_broadcast_ = config.tf_broadcast;
 
-  do_beamskip_= config.do_beamskip; 
-  beam_skip_distance_ = config.beam_skip_distance; 
-  beam_skip_threshold_ = config.beam_skip_threshold; 
+  //do_beamskip_= config.do_beamskip; 
+  //beam_skip_distance_ = config.beam_skip_distance; 
+  //beam_skip_threshold_ = config.beam_skip_threshold; 
 
   pf_ = pf_alloc(min_particles_, max_particles_,
                  alpha_slow_, alpha_fast_,
@@ -605,6 +691,20 @@ pf_init_model(pf_, (pf_init_model_fn_t)AmclNode::uniformPoseGenerator,
   odom_ = new AMCLOdom();
   ROS_ASSERT(odom_);
   odom_->SetModel( odom_model_type_, alpha1_, alpha2_, alpha3_, alpha4_, alpha5_ );
+
+
+  //ndt match param
+  delete depthcamera_;
+  depthcamera_ = new AMCLDepthCamera();
+  ROS_ASSERT(depthcamera_ );
+  depthcamera_->SetNDTMatchParam( ndt_cellSize_,
+                    ndt_subsamplingFactor_,
+                    ndt_clippingDistance_,
+                    iron_matchingTolerance_,
+                    iron_entropyThreshold_,
+                    iron_neighborSearchRadius_,
+                    global_map3d_dir_   );
+/*
   // Laser
   delete laser_;
   laser_ = new AMCLLaser(max_beams_, map_);
@@ -626,11 +726,20 @@ pf_init_model(pf_, (pf_init_model_fn_t)AmclNode::uniformPoseGenerator,
                                     laser_likelihood_max_dist_);
     ROS_INFO("Done initializing likelihood field model.");
   }
+*/
 
   odom_frame_id_ = config.odom_frame_id;
   base_frame_id_ = config.base_frame_id;
   global_frame_id_ = config.global_frame_id;
 
+  delete pointcloud_filter_;
+  pointcloud_filter_ = new tf::MessageFilter<sensor_msgs::PointCloud2>(*pointcloud_sub_,
+                                                                      *tf_, 
+                                                                      odom_frame_id_, 
+                                                                      100); 
+  pointcloud_filter_->registerCallback(boost::bind(&AmclNode::pointcloudReceived,this, _1));
+
+ /* 
   delete laser_scan_filter_;
   laser_scan_filter_ = 
           new tf::MessageFilter<sensor_msgs::LaserScan>(*laser_scan_sub_, 
@@ -639,6 +748,7 @@ pf_init_model(pf_, (pf_init_model_fn_t)AmclNode::uniformPoseGenerator,
                                                         100);
   laser_scan_filter_->registerCallback(boost::bind(&AmclNode::laserReceived,
                                                    this, _1));
+*/
 
   initial_pose_sub_ = nh_.subscribe("initialpose", 2, &AmclNode::initialPoseReceived, this);
 }
@@ -650,11 +760,11 @@ void AmclNode::runFromBag(const std::string &in_bag_fn)
   bag.open(in_bag_fn, rosbag::bagmode::Read);
   std::vector<std::string> topics;
   topics.push_back(std::string("tf"));
-  std::string scan_topic_name = "base_scan"; // TODO determine what topic this actually is from ROS
-  topics.push_back(scan_topic_name);
+  std::string pcld_topic_name = "base_scan"; // TODO determine what topic this actually is from ROS
+  topics.push_back(pcld_topic_name);
   rosbag::View view(bag, rosbag::TopicQuery(topics));
 
-  ros::Publisher laser_pub = nh_.advertise<sensor_msgs::LaserScan>(scan_topic_name, 100);
+  ros::Publisher pcld_pub = nh_.advertise<sensor_msgs::PointCloud2>(pcld_topic_name, 100);
   ros::Publisher tf_pub = nh_.advertise<tf2_msgs::TFMessage>("/tf", 100);
 
   // Sleep for a second to let all subscribers connect
@@ -698,11 +808,12 @@ void AmclNode::runFromBag(const std::string &in_bag_fn)
       continue;
     }
 
-    sensor_msgs::LaserScan::ConstPtr base_scan = msg.instantiate<sensor_msgs::LaserScan>();
+    //sensor_msgs::LaserScan::ConstPtr base_scan = msg.instantiate<sensor_msgs::LaserScan>();
+    sensor_msgs::PointCloud2::ConstPtr base_scan = msg.instantiate<sensor_msgs::PointCloud2>();
     if (base_scan != NULL)
     {
-      laser_pub.publish(msg);
-      laser_scan_filter_->add(base_scan);
+      pcld_pub.publish(msg);
+      pointcloud_filter_->add(base_scan);
       if (bag_scan_period_ > ros::WallDuration(0))
       {
         bag_scan_period_.sleep();
@@ -796,6 +907,7 @@ void AmclNode::updatePoseFromServer()
     ROS_WARN("ignoring NAN in initial covariance AA");	
 }
 
+/*
 void 
 AmclNode::checkLaserReceived(const ros::TimerEvent& event)
 {
@@ -805,6 +917,18 @@ AmclNode::checkLaserReceived(const ros::TimerEvent& event)
     ROS_WARN("No laser scan received (and thus no pose updates have been published) for %f seconds.  Verify that data is being published on the %s topic.",
              d.toSec(),
              ros::names::resolve(scan_topic_).c_str());
+  }
+}
+*/
+void 
+AmclNode::checkPcldReceived(const ros::TimerEvent& event)
+{
+  ros::Duration d = ros::Time::now() - last_pcld_received_ts_;
+  if(d > pcld_check_interval_)
+  {
+    ROS_WARN("No laser scan received (and thus no pose updates have been published) for %f seconds.  Verify that data is being published on the %s topic.",
+             d.toSec(),
+             ros::names::resolve(pcld_topic_).c_str());
   }
 }
 
@@ -852,9 +976,14 @@ AmclNode::handleMapMessage(const nav_msgs::OccupancyGrid& msg)
   freeMapDependentMemory();//释放内存(包括地图map_,粒子集pf_,odom_,laser_)
   // Clear queued laser objects because they hold pointers to the existing
   // map, #5202.
-  lasers_.clear();
-  lasers_update_.clear();
-  frame_to_laser_.clear();
+
+  //lasers_.clear();
+  //lasers_update_.clear();
+  //frame_to_laser_.clear();
+  depthcameras_.clear();
+  depthcameras_update_.clear();
+  frame_to_depthcamera_.clear();
+
 
   map_ = convertMap(msg);//将消息类型的地图转换成定义的map类型
 
@@ -894,6 +1023,20 @@ AmclNode::handleMapMessage(const nav_msgs::OccupancyGrid& msg)
   odom_ = new AMCLOdom();
   ROS_ASSERT(odom_);
   odom_->SetModel( odom_model_type_, alpha1_, alpha2_, alpha3_, alpha4_, alpha5_ );
+
+  //ndt match param
+  delete depthcamera_;
+  depthcamera_ = new AMCLDepthCamera();
+  ROS_ASSERT(depthcamera_ );
+  depthcamera_->SetNDTMatchParam( ndt_cellSize_,
+                    ndt_subsamplingFactor_,
+                    ndt_clippingDistance_,
+                    iron_matchingTolerance_,
+                    iron_entropyThreshold_,
+                    iron_neighborSearchRadius_,
+                    global_map3d_dir_   );
+
+  /*
   // Laser  根据设置的传感器概率模型初始化激光数据,主要是设置模型的参数
   delete laser_;
   laser_ = new AMCLLaser(max_beams_, map_);
@@ -916,7 +1059,7 @@ AmclNode::handleMapMessage(const nav_msgs::OccupancyGrid& msg)
                                     laser_likelihood_max_dist_);
     ROS_INFO("Done initializing likelihood field model.");
   }
-
+*/
   // In case the initial pose message arrived before the first map,
   // try to apply the initial pose now that the map has arrived.
   applyInitialPose();
@@ -936,8 +1079,8 @@ AmclNode::freeMapDependentMemory()//释放内存(包括地图map_,粒子集pf_,o
   }
   delete odom_;
   odom_ = NULL;
-  delete laser_;
-  laser_ = NULL;
+  delete depthcamera_;
+  depthcamera_ = NULL;
 }
 
 /**
@@ -975,8 +1118,8 @@ AmclNode::~AmclNode()
 {
   delete dsrv_;
   freeMapDependentMemory();//释放内存(包括地图map_,粒子集pf_,odom_,laser_)
-  delete laser_scan_filter_;
-  delete laser_scan_sub_;
+  delete pointcloud_filter_;
+  delete pointcloud_sub_;
   delete tfb_;
   delete tf_;
   // TODO: delete everything allocated in constructor
@@ -1087,63 +1230,65 @@ AmclNode::setMapCallback(nav_msgs::SetMap::Request& req,
 
 //重点,粒子滤波主要过程,根据激光扫描数据更新粒子 UpdateSensor
 void
-AmclNode::laserReceived(const sensor_msgs::LaserScanConstPtr& laser_scan)
+AmclNode::pointcloudReceived(const sensor_msgs::PointCloud2ConstPtr& pcldmsg)//pcldmsg
 {
-  last_laser_received_ts_ = ros::Time::now();
+  last_pcld_received_ts_= ros::Time::now();
   if( map_ == NULL ) {
     return;
   }
   boost::recursive_mutex::scoped_lock lr(configuration_mutex_);
-  int laser_index = -1;
+  int depthcamera_index = -1;
 
   // Do we have the base->base_laser Tx yet?
-  if(frame_to_laser_.find(laser_scan->header.frame_id) == frame_to_laser_.end())
+  if(frame_to_depthcamera_.find(pcldmsg->header.frame_id) == frame_to_depthcamera_.end())
   {
-    ROS_DEBUG("Setting up laser %d (frame_id=%s)\n", (int)frame_to_laser_.size(), laser_scan->header.frame_id.c_str());
-    lasers_.push_back(new AMCLLaser(*laser_));
-    lasers_update_.push_back(true);
-    laser_index = frame_to_laser_.size();
+    ROS_DEBUG("Setting up depthcamera %d (frame_id=%s)\n", (int)frame_to_depthcamera_.size(), pcldmsg->header.frame_id.c_str());
+    depthcameras_.push_back(new AMCLDepthCamera(*depthcamera_));
+    depthcameras_update_.push_back(true);
+    depthcamera_index = frame_to_depthcamera_.size();
 
     tf::Stamped<tf::Pose> ident (tf::Transform(tf::createIdentityQuaternion(),
                                              tf::Vector3(0,0,0)),
-                                 ros::Time(), laser_scan->header.frame_id);
-    tf::Stamped<tf::Pose> laser_pose;
+                                 ros::Time(), pcldmsg->header.frame_id);
+    tf::Stamped<tf::Pose> depthcamera_pose;//这个数据是六自由度的，
     try
     {
-      this->tf_->transformPose(base_frame_id_, ident, laser_pose);//得到的laser_pose为扫描数据相对于base_frame的位置
+      this->tf_->transformPose(base_frame_id_, ident, depthcamera_pose);//得到的depthcamera_pose为扫描数据相对于base_frame的位置
     }
     catch(tf::TransformException& e)
     {
       ROS_ERROR("Couldn't transform from %s to %s, "
                 "even though the message notifier is in use",
-                laser_scan->header.frame_id.c_str(),
+                pcldmsg->header.frame_id.c_str(),
                 base_frame_id_.c_str());
       return;
     }
 
-    pf_vector_t laser_pose_v;
-    laser_pose_v.v[0] = laser_pose.getOrigin().x();
-    laser_pose_v.v[1] = laser_pose.getOrigin().y();
-    // laser mounting angle gets computed later -> set to 0 here!
-    laser_pose_v.v[2] = 0;
-    lasers_[laser_index]->SetLaserPose(laser_pose_v);
-    ROS_DEBUG("Received laser's pose wrt robot: %.3f %.3f %.3f",
-              laser_pose_v.v[0],
-              laser_pose_v.v[1],
-              laser_pose_v.v[2]);
+    //pf_vector_t depthcamera_pose_v;
+    Eigen::Isometry3d depthcamera_pose_v;
+    //todo :将tf::Stamped<tf::Pose>转换为Eigen::Isometry3d，并设置CameraPose
+    //void poseTFToEigen(const tf::Pose &t, Eigen::Isometry3d &e);(tf_eigen.h)
+    tf::poseTFToEigen(depthcamera_pose,depthcamera_pose_v);
 
-    frame_to_laser_[laser_scan->header.frame_id] = laser_index;
+    depthcameras_[depthcamera_index]->SetCameraPose(depthcamera_pose_v);
+    ROS_DEBUG("Received depthcamera's pose wrt robot: %.3f %.3f %.3f",
+              depthcamera_pose_v.matrix()(0,3),
+              depthcamera_pose_v.matrix()(1,3),
+              depthcamera_pose_v.matrix()(2,3)  );
+
+
+    frame_to_depthcamera_[pcldmsg->header.frame_id] = depthcamera_index;
   } else {
-    // we have the laser pose, retrieve laser index
-    laser_index = frame_to_laser_[laser_scan->header.frame_id];
+    // we have the depthcamera pose, retrieve depthcamera index
+    depthcamera_index = frame_to_depthcamera_[pcldmsg->header.frame_id];
   }
 
   // Where was the robot when this scan was taken?
   pf_vector_t pose;
   if(!getOdomPose(latest_odom_pose_, pose.v[0], pose.v[1], pose.v[2],
-                  laser_scan->header.stamp, base_frame_id_))
+                  pcldmsg->header.stamp, base_frame_id_))
   {
-    ROS_ERROR("Couldn't determine robot's pose associated with laser scan");
+    ROS_ERROR("Couldn't determine robot's pose associated with point cloud");
     return;
   }
 
@@ -1165,10 +1310,10 @@ AmclNode::laserReceived(const sensor_msgs::LaserScanConstPtr& laser_scan)
     update = update || m_force_update;
     m_force_update=false;
 
-    // Set the laser update flags
+    // Set the depthcamera update flags
     if(update)
-      for(unsigned int i=0; i < lasers_update_.size(); i++)
-        lasers_update_[i] = true;
+      for(unsigned int i=0; i < depthcameras_update_.size(); i++)
+        depthcameras_update_[i] = true;
   }
 
   bool force_publication = false;
@@ -1181,15 +1326,15 @@ AmclNode::laserReceived(const sensor_msgs::LaserScanConstPtr& laser_scan)
     pf_init_ = true;
 
     // Should update sensor data
-    for(unsigned int i=0; i < lasers_update_.size(); i++)
-      lasers_update_[i] = true;
+    for(unsigned int i=0; i < depthcameras_update_.size(); i++)
+      depthcameras_update_[i] = true;
 
     force_publication = true;
 
     resample_count_ = 0;
   }
   // If the robot has moved, update the filter
-  else if(pf_init_ && lasers_update_[laser_index])
+  else if(pf_init_ && depthcameras_update_[depthcamera_index])
   {
     //printf("pose\n");
     //pf_vector_fprintf(pose, stdout, "%.3f");
@@ -1211,73 +1356,18 @@ AmclNode::laserReceived(const sensor_msgs::LaserScanConstPtr& laser_scan)
 
   bool resampled = false;
   // If the robot has moved, update the filter
-  if(lasers_update_[laser_index])
+  if(depthcameras_update_[depthcamera_index])
   {
-    AMCLLaserData ldata;
-    ldata.sensor = lasers_[laser_index];
-    ldata.range_count = laser_scan->ranges.size();
+    AMCLDepthCameraData pcldata;
+    pcldata.sensor = depthcameras_[depthcamera_index];
+    //ldata.range_count = pcldmsg->ranges.size();
+    //void fromROSMsg(const sensor_msgs::PointCloud2 &, pcl::PointCloud<T>&);
+    pcl::fromROSMsg(*pcldmsg,*(pcldata.pcloud));
 
-    // To account for lasers that are mounted upside-down(颠倒计数), we determine the
-    // min, max, and increment angles of the laser in the base frame.
-    //
-    // Construct min and max angles of laser, in the base_link frame.
-    tf::Quaternion q;
-    q.setRPY(0.0, 0.0, laser_scan->angle_min);
-    tf::Stamped<tf::Quaternion> min_q(q, laser_scan->header.stamp,
-                                      laser_scan->header.frame_id);
-    q.setRPY(0.0, 0.0, laser_scan->angle_min + laser_scan->angle_increment);
-    tf::Stamped<tf::Quaternion> inc_q(q, laser_scan->header.stamp,
-                                      laser_scan->header.frame_id);
-    try
-    {
-      tf_->transformQuaternion(base_frame_id_, min_q, min_q);
-      tf_->transformQuaternion(base_frame_id_, inc_q, inc_q);
-    }
-    catch(tf::TransformException& e)
-    {
-      ROS_WARN("Unable to transform min/max laser angles into base frame: %s",
-               e.what());
-      return;
-    }
+	  ROS_INFO("hi:calculate weights of particle...");
+    depthcameras_[depthcamera_index]->UpdateSensor(pf_, (AMCLSensorData*) &pcldata);  //粒子权值计算
 
-    double angle_min = tf::getYaw(min_q);
-    double angle_increment = tf::getYaw(inc_q) - angle_min;
-
-    // wrapping angle to [-pi .. pi]
-    angle_increment = fmod(angle_increment + 5*M_PI, 2*M_PI) - M_PI;
-
-    ROS_DEBUG("Laser %d angles in base frame: min: %.3f inc: %.3f", laser_index, angle_min, angle_increment);
-
-    // Apply range min/max thresholds, if the user supplied them
-    if(laser_max_range_ > 0.0)
-      ldata.range_max = std::min(laser_scan->range_max, (float)laser_max_range_);
-    else
-      ldata.range_max = laser_scan->range_max;
-    double range_min;
-    if(laser_min_range_ > 0.0)
-      range_min = std::max(laser_scan->range_min, (float)laser_min_range_);
-    else
-      range_min = laser_scan->range_min;
-    // The AMCLLaserData destructor will free this memory
-    ldata.ranges = new double[ldata.range_count][2];
-    ROS_ASSERT(ldata.ranges);
-    for(int i=0;i<ldata.range_count;i++)
-    {
-      // amcl doesn't (yet) have a concept of min range.  So we'll map short
-      // readings to max range.
-      if(laser_scan->ranges[i] <= range_min)
-        ldata.ranges[i][0] = ldata.range_max;
-      else
-        ldata.ranges[i][0] = laser_scan->ranges[i];
-      // Compute bearing
-      ldata.ranges[i][1] = angle_min +
-              (i * angle_increment);
-    }
-
-	ROS_INFO("hi:calculate weights of particle...");
-    lasers_[laser_index]->UpdateSensor(pf_, (AMCLSensorData*)&ldata);  //粒子权值计算
-
-    lasers_update_[laser_index] = false;
+    depthcameras_update_[depthcamera_index] = false;
 
     pf_odom_pose_ = pose;
 
@@ -1361,7 +1451,7 @@ AmclNode::laserReceived(const sensor_msgs::LaserScanConstPtr& laser_scan)
       geometry_msgs::PoseWithCovarianceStamped p;
       // Fill in the header
       p.header.frame_id = global_frame_id_;
-      p.header.stamp = laser_scan->header.stamp;
+      p.header.stamp = pcldmsg->header.stamp;
       // Copy in the pose
       p.pose.pose.position.x = hyps[max_weight_hyp].pf_pose_mean.v[0];
       p.pose.pose.position.y = hyps[max_weight_hyp].pf_pose_mean.v[1];
@@ -1411,7 +1501,7 @@ AmclNode::laserReceived(const sensor_msgs::LaserScanConstPtr& laser_scan)
                                          hyps[max_weight_hyp].pf_pose_mean.v[1],
                                          0.0));
         tf::Stamped<tf::Pose> tmp_tf_stamped (tmp_tf.inverse(),
-                                              laser_scan->header.stamp,
+                                              pcldmsg->header.stamp,
                                               base_frame_id_);
         this->tf_->transformPose(odom_frame_id_,
                                  tmp_tf_stamped,
@@ -1431,7 +1521,7 @@ AmclNode::laserReceived(const sensor_msgs::LaserScanConstPtr& laser_scan)
       {
         // We want to send a transform that is good up until a
         // tolerance time so that odom can be used
-        ros::Time transform_expiration = (laser_scan->header.stamp +
+        ros::Time transform_expiration = (pcldmsg->header.stamp +
                                           transform_tolerance_);
         tf::StampedTransform tmp_tf_stamped(latest_tf_.inverse(),
                                             transform_expiration,
@@ -1451,7 +1541,7 @@ AmclNode::laserReceived(const sensor_msgs::LaserScanConstPtr& laser_scan)
     {
       // Nothing changed, so we'll just republish the last transform, to keep
       // everybody happy.
-      ros::Time transform_expiration = (laser_scan->header.stamp +
+      ros::Time transform_expiration = (pcldmsg->header.stamp +
                                         transform_tolerance_);
       tf::StampedTransform tmp_tf_stamped(latest_tf_.inverse(),
                                           transform_expiration,

@@ -166,14 +166,14 @@ double AMCLLaser::BeamModel(AMCLLaserData *data, pf_sample_set_t* set)
 
     p = 1.0;
 
-    step = (data->range_count - 1) / (　self->max_beams - 1　);
-    for (i = 0; i < data->range_count; i += step)
+    step=(data->range_count-1)/(self->max_beams-1);
+    for(i = 0; i < data->range_count; i += step)
     {
       obs_range = data->ranges[i][0];
       obs_bearing = data->ranges[i][1];
 
       // Compute the range according to the map
-      //　根据地图和激光传感器的全局位姿，有射线投射法计算期望的观测距离
+      //根据地图和激光传感器的全局位姿，有射线投射法计算期望的观测距离
       map_range = map_calc_range(self->map, pose.v[0], pose.v[1],
                                  pose.v[2] + obs_bearing, data->range_max);
       pz = 0.0;

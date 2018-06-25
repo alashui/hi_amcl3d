@@ -1,0 +1,44 @@
+<?xml version="1.0"?>
+<launch>
+<node pkg="amcl" type="amcl3d" name="amcl3d" output="screen" >
+<!--node pkg="amcl" type="amcl" name="amcl" output="screen" launch-prefix="xterm -e gdb //-//-args" -->
+  <!-- Publish scans from best pose at a max of 10 Hz -->
+  <param name="odom_model_type" value="diff"/>
+  <param name="odom_alpha5" value="0.1"/>
+  <param name="transform_tolerance" value="0.2" />
+  <param name="gui_publish_rate" value="10.0"/>
+  <param name="min_particles" value="5"/>
+  <param name="max_particles" value="50"/>
+  <param name="kld_err" value="0.05"/>
+  <param name="kld_z" value="0.99"/>
+  <param name="odom_alpha1" value="0.2"/>
+  <param name="odom_alpha2" value="0.2"/>
+  <!-- translation std dev, m -->
+
+  <param name="update_min_d" value="0.2"/>
+  <param name="update_min_a" value="0.5"/>
+  <param name="odom_frame_id" value="odom"/>
+  <param name="resample_interval" value="1"/>
+  <param name="transform_tolerance" value="0.1"/>
+  <param name="recovery_alpha_slow" value="0.0"/>
+  <param name="recovery_alpha_fast" value="0.0"/>
+
+  <!--//机器人初始化数据设置-->
+    <param name="initial_pose_x" value="-4.0"/> 
+    <param name="initial_pose_y" value="-2.0"/>
+    <param name="initial_pose_a" value="0.0"/>
+    <param name="initial_cov_xx" value="0.6*0.6"/> 
+    <param name="initial_cov_yy" value="0.4*0.4"/> 
+    <param name="initial_cov_aa" value="(π/3)*(π/3)"/>
+ <!--//the parameter about ndt match-->
+  <param name="ndt_cellSize" value="0.1"/>
+  <param name="ndt_subsamplingFactor" value= "0.8"/>
+  <param name="ndt_clippingDistance" value= "5.0"/>
+  <param name="iron_matchingTolerance" value= "0.2"/>
+  <param name="iron_entropyThreshold" value= "0.75"/>
+  <param name="iron_neighborSearchRadius" value= "0.8"/>
+  <param name="global_map3d_dir" value= "../data/result.pcd"/>
+
+
+</node>
+</launch>

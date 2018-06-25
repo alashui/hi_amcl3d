@@ -4,14 +4,14 @@
 //using namespace amcl;		
 Map3dCloud::Map3dCloud(ros::NodeHandle nh):nh_(nh),
 									   global_map_(new PointCloud()),
-									   ref_map_(new PointCloud()),
-									   curr_map_(new PointCloud())
+									   ref_map_(new PointCloud())
+									   
 {
     global_map_pub_ = nh_.advertise<sensor_msgs::PointCloud2>("/globalmap", 5, true);
     //curr_map_pub_ = nh_.advertise<sensor_msgs::PointCloud2>("/currmap", 5, true);
     //ref_map_pub_ = nh_.advertise<sensor_msgs::PointCloud2>("/refmap", 5, true);	
 }
-void Map3dCloud::localization(){}
+//void Map3dCloud::localization(){}
 void Map3dCloud::load_gloabalmap(const string &globalmap_pcd_dir)
 {
     cout<<"load globalmap..."<<endl;
@@ -20,7 +20,7 @@ void Map3dCloud::load_gloabalmap(const string &globalmap_pcd_dir)
 
     // downsample globalmap
     double downsample_resolution = private_nh_.param<double>("downsample_resolution", 0.03);
-    boost::shared_ptr<pcl::VoxelGrid<PointT>> voxelgrid(new pcl::VoxelGrid<PointT>());
+    boost::shared_ptr<pcl::VoxelGrid<PointT> > voxelgrid(new pcl::VoxelGrid<PointT>());
     voxelgrid->setLeafSize(downsample_resolution, downsample_resolution, downsample_resolution);
     voxelgrid->setInputCloud(global_map_);
 
@@ -64,9 +64,9 @@ void Map3dCloud::generate_refmap(const Eigen::Isometry3d &cameraPose)
 				&& pt.y > (-0.5*pt.z) && pt.y< (0.5*pt.z)     
 			  )
 			{
-				pt.b=global_map_c->points[i].b;
-				pt.g=global_map_c->points[i].g;
-				pt.r=global_map_c->points[i].r;
+				//pt.b=global_map_c->points[i].b;
+				//pt.g=global_map_c->points[i].g;
+				//pt.r=global_map_c->points[i].r;
 				
 				ref_map_->points.push_back(pt);
 			}

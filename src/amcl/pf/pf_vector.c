@@ -118,7 +118,7 @@ pf_vector_t pf_vector_coord_add(pf_vector_t a, pf_vector_t b)
 
 
 // Transform from global to local coords (a - b)
-// a为全局坐标系下的坐标,b为局部坐标系的全局坐标,
+// a为全局坐标系下的坐标,b为局部坐标系的全局坐标,变换后的结果为a在局部坐标系b下的坐标
 pf_vector_t pf_vector_coord_sub(pf_vector_t a, pf_vector_t b)
 {
   pf_vector_t c;
