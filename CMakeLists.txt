@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 2.8.3)
-project(amcl)
+project(hi_amcl3d)
 
 set( CMAKE_CXX_FLAGS "-std=c++11 -march=native -O3" )
 
@@ -92,7 +92,7 @@ target_link_libraries(amcl3d
 )
 
 install( TARGETS
-    amcl amcl_sensors amcl_map amcl_pf
+    amcl amcl3d amcl_sensors amcl_map amcl_pf
     ARCHIVE DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
     LIBRARY DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
     RUNTIME DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}

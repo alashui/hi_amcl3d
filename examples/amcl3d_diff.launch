@@ -1,6 +1,6 @@
 <?xml version="1.0"?>
 <launch>
-<node pkg="amcl" type="amcl3d" name="amcl3d" output="screen" >
+<node pkg="hi_amcl3d" type="amcl3d" name="amcl3d" output="screen" >
 <!--node pkg="amcl" type="amcl" name="amcl" output="screen" launch-prefix="xterm -e gdb //-//-args" -->
   <!-- Publish scans from best pose at a max of 10 Hz -->
   <param name="odom_model_type" value="diff"/>
@@ -38,7 +38,5 @@
   <param name="iron_entropyThreshold" value= "0.75"/>
   <param name="iron_neighborSearchRadius" value= "0.8"/>
   <param name="global_map3d_dir" value= "../data/result.pcd"/>
-
-
 </node>
 </launch>
