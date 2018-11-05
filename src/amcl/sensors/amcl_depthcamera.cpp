@@ -46,9 +46,12 @@ using namespace amcl;
 AMCLDepthCamera::AMCLDepthCamera(): AMCLSensor(),
                                     ndtcfg_(IRON::NDTLiteConfig()),
                                     ironcfg_(IRON::IRONConfig())
+                                    
                                     //creator_(ndtcfg_),
                                     //engine_(ironcfg_)
 {
+    ros::NodeHandle nh;
+    map3d_=new  Map3dCloud(nh);
     time = 0.0;
 
     // prepare NDT map creator (take a look into NDTLite.h for an explanation of parameters)

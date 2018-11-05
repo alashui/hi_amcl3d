@@ -14,10 +14,12 @@ Map3dCloud::Map3dCloud(ros::NodeHandle nh):nh_(nh),
 //void Map3dCloud::localization(){}
 void Map3dCloud::load_gloabalmap(const string &globalmap_pcd_dir)
 {
-    cout<<"load globalmap..."<<endl;
+    cout<<"load globalmap...12345"<<endl;
+cout<<globalmap_pcd_dir<<endl;
     pcl::io::loadPCDFile(globalmap_pcd_dir, *global_map_);
+cout<<"...12"<<endl;
     global_map_->header.frame_id = "map";
-
+cout<<"...123"<<endl;
     // downsample globalmap
     double downsample_resolution = private_nh_.param<double>("downsample_resolution", 0.03);
     boost::shared_ptr<pcl::VoxelGrid<PointT> > voxelgrid(new pcl::VoxelGrid<PointT>());
@@ -26,7 +28,7 @@ void Map3dCloud::load_gloabalmap(const string &globalmap_pcd_dir)
 
     //PointCloud::Ptr filtered(new PointCloud());
     voxelgrid->filter(*global_map_);
-
+cout<<"...1234"<<endl;
     //*global_map_ = *filtered;
    
 	sensor_msgs::PointCloud2 msg_global_map_;
