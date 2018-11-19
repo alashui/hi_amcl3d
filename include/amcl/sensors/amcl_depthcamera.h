@@ -38,8 +38,13 @@ class AMCLDepthCameraData : public AMCLSensorData
 {
 //基类AMCLSensorData中包含 AMCLSensor对象指针
 public:
-    AMCLDepthCameraData(){}
-    virtual ~AMCLDepthCameraData(){}
+    AMCLDepthCameraData():pcloud(new PointCloud())
+    {
+
+    }
+    virtual ~AMCLDepthCameraData()
+    {
+    }
 
     PointCloud::Ptr pcloud;//当前观测的局部地图点云
 

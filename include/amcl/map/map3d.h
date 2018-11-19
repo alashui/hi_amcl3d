@@ -6,6 +6,7 @@
 #include <pcl_ros/point_cloud.h>
 #include <iostream>
 #include <fstream>
+#include <string>  
 #include <opencv2/core/core.hpp>
 #include <opencv2/highgui/highgui.hpp>
 #include <Eigen/Geometry> 
@@ -43,7 +44,7 @@ class Map3dCloud
 {
 	public:
 		Map3dCloud(ros::NodeHandle nh);
-		~Map3dCloud(){}
+		~Map3dCloud(){};
 		
 		//void localization();
 		void load_gloabalmap(const string &globalmap_pcd_dir);
@@ -60,7 +61,7 @@ class Map3dCloud
 		ros::NodeHandle nh_;
 		ros::NodeHandle private_nh_;
 		ros::Publisher global_map_pub_;
-		//ros::Publisher ref_map_pub_;
+		ros::Publisher ref_map_pub_;
         //ros::Publisher curr_map_pub_;
 };
 

@@ -1,4 +1,5 @@
 #include "map3d.h"
+
 #include <boost/timer.hpp>
 
 //using namespace amcl;		
@@ -7,45 +8,71 @@ Map3dCloud::Map3dCloud(ros::NodeHandle nh):nh_(nh),
 									   ref_map_(new PointCloud())
 									   
 {
-    global_map_pub_ = nh_.advertise<sensor_msgs::PointCloud2>("/globalmap", 5, true);
+    ref_map_pub_ = nh_.advertise<sensor_msgs::PointCloud2>("/refmap", 5, true);	
+	global_map_pub_ = nh_.advertise<sensor_msgs::PointCloud2>("/globalmap", 5, true);
     //curr_map_pub_ = nh_.advertise<sensor_msgs::PointCloud2>("/currmap", 5, true);
-    //ref_map_pub_ = nh_.advertise<sensor_msgs::PointCloud2>("/refmap", 5, true);	
+    
 }
+
+
 //void Map3dCloud::localization(){}
 void Map3dCloud::load_gloabalmap(const string &globalmap_pcd_dir)
 {
     cout<<"load globalmap..."<<endl;
-    pcl::io::loadPCDFile(globalmap_pcd_dir, *global_map_);
-    global_map_->header.frame_id = "map";
+	PointCloud::Ptr global_map_tmp( new PointCloud );
+	PointCloud::Ptr global_map_filtered( new PointCloud );
+    pcl::io::loadPCDFile(globalmap_pcd_dir, *global_map_tmp);
+//    global_map_tmp->header.frame_id = "map";
+
     // downsample globalmap
     double downsample_resolution = private_nh_.param<double>("downsample_resolution", 0.03);
     boost::shared_ptr<pcl::VoxelGrid<PointT> > voxelgrid(new pcl::VoxelGrid<PointT>());
     voxelgrid->setLeafSize(downsample_resolution, downsample_resolution, downsample_resolution);
-    voxelgrid->setInputCloud(global_map_);
+    voxelgrid->setInputCloud(global_map_tmp);
 
     //PointCloud::Ptr filtered(new PointCloud());
-    voxelgrid->filter(*global_map_);
-cout<<"...1234"<<endl;
+    voxelgrid->filter(*global_map_filtered);
+
     //*global_map_ = *filtered;
    
+
+   //将全局点云作坐标变换使其与rviz中坐标系一致（绕x轴旋转90度）
+    Eigen::Matrix4f transform_1 = Eigen::Matrix4f::Identity();
+
+    transform_1 (1,1) = 0;
+	transform_1 (1,2) = 1;
+    transform_1 (2,1) = -1;
+	transform_1 (2,2) = 0;
+	//相机相对于base_link的坐标
+	transform_1 (0,3) = -0.087;
+	transform_1 (1,3) = 0.0125;
+	transform_1 (2,3) = 0.2972;
+
+	pcl::transformPointCloud( *global_map_filtered, *global_map_,transform_1);
+
+
+
+ 	global_map_->header.frame_id = "map";
+
 	sensor_msgs::PointCloud2 msg_global_map_;
 	pcl::toROSMsg(*global_map_, msg_global_map_);
     global_map_pub_.publish(msg_global_map_);
     ros::spinOnce();
-    ros::Duration(0.1).sleep();	
+    ros::Duration(0.05).sleep();	
     
-    cout<<"全局点云共有"<< global_map_->size()<<"个点."<<endl;
+    cout<<"全局点云共有"<< global_map_->size()<<"个点"<<endl;
 }
 
 
 void Map3dCloud::generate_refmap(const Eigen::Isometry3d &cameraPose)
 {
 	cout<<"generate refmap..."<<endl;
-	PointCloud::Ptr newCloud( new PointCloud );
+	ref_map_->points.clear();
+	//PointCloud::Ptr newCloud( new PointCloud );
 	//pcl::transformPointCloud( *curr_map_, *newCloud,cameraPose.matrix() );//将观测点云变换到全局坐标
 	  //*newCloud = *curr_map_;
 	
-	//cout<<"cameraPose : "<<endl<<cameraPose.matrix()<<endl;
+//cout<<"cameraPose : "<<endl<<cameraPose.matrix()<<endl;
 
 	PointCloud::Ptr global_map_c( new PointCloud );
 	pcl::transformPointCloud( *global_map_, *global_map_c,cameraPose.inverse().matrix() );
@@ -79,21 +106,29 @@ void Map3dCloud::generate_refmap(const Eigen::Isometry3d &cameraPose)
 	
     ref_map_->is_dense = false;
 
-	/*
-    cout<<"参考点云共有"<<ref_map_->size()<<"个点."<<endl;
-	pcl::io::savePCDFileASCII("/home/robot/catkin_ws/data/map_ref.pcd" , *ref_map_); 
+	
+
+	//pcl::io::savePCDFileASCII("/home/robot/catkin_ws/data/map_ref.pcd" , *ref_map_); 
 
 	//发布消息（在rviz中显示）
 	PointCloud::Ptr ref_map_w( new PointCloud );
 	pcl::transformPointCloud( *ref_map_, *ref_map_w,cameraPose.matrix() );
-	ref_map_w->header.frame_id = "map";	
+
+	ref_map_w->header.frame_id ="map"; //"base_footprint";	
+	//global_map_c->header.frame_id = "map";	
+
 	sensor_msgs::PointCloud2 msg_ref_map_;
 	pcl::toROSMsg(*ref_map_w, msg_ref_map_);
+
+/*	
+cout<<"参考点云fabu"<<endl;	
     ref_map_pub_.publish(msg_ref_map_);
     ros::spinOnce();
-    ros::Duration(0.1).sleep(); 
-	
-	*/  
+cout<<"参考点云fabuwan"<<endl;	
+    ros::Duration(0.05).sleep(); 
+cout<<"参考点云fabuwan"<<endl;	
+*/
+	 
 }
 
 /*

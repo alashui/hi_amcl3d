@@ -122,7 +122,7 @@ angle_diff(double a, double b)
 }
 
 //static const std::string scan_topic_ = "scan";
-static const std::string pcld_topic_ = "/camera/depth_registered/points";
+static const std::string pcld_topic_ = "/camera/depth/points";
 
 class AmclNode
 {
@@ -429,8 +429,8 @@ AmclNode::AmclNode() :
   private_nh_.param("iron_neighborSearchRadius", iron_neighborSearchRadius_, 0.8f);
   private_nh_.param("global_map3d_dir", global_map3d_dir_, std::string("../data/result.pcd"));
 
-  private_nh_.param("min_particles", min_particles_, 100);
-  private_nh_.param("max_particles", max_particles_, 5000);
+  private_nh_.param("min_particles", min_particles_, 10);
+  private_nh_.param("max_particles", max_particles_, 100);
   private_nh_.param("kld_err", pf_err_, 0.01);
   private_nh_.param("kld_z", pf_z_, 0.99);
   private_nh_.param("odom_alpha1", alpha1_, 0.2);
@@ -672,6 +672,7 @@ void AmclNode::reconfigureCB(AMCL3DConfig &config, uint32_t level)
   pf_->pop_z = pf_z_;
 
   // Initialize the filter
+  
   pf_vector_t pf_init_pose_mean = pf_vector_zero();
   pf_init_pose_mean.v[0] = last_published_pose.pose.pose.position.x;
   pf_init_pose_mean.v[1] = last_published_pose.pose.pose.position.y;
@@ -680,9 +681,11 @@ void AmclNode::reconfigureCB(AMCL3DConfig &config, uint32_t level)
   pf_init_pose_cov.m[0][0] = last_published_pose.pose.covariance[6*0+0];
   pf_init_pose_cov.m[1][1] = last_published_pose.pose.covariance[6*1+1];
   pf_init_pose_cov.m[2][2] = last_published_pose.pose.covariance[6*5+5];
-  //pf_init(pf_, pf_init_pose_mean, pf_init_pose_cov);
-pf_init_model(pf_, (pf_init_model_fn_t)AmclNode::uniformPoseGenerator,
-                (void *)map_);
+  pf_init(pf_, pf_init_pose_mean, pf_init_pose_cov);
+
+
+//pf_init_model(pf_, (pf_init_model_fn_t)AmclNode::uniformPoseGenerator,(void *)map_);
+
   pf_init_ = false;
 
   // Instantiate the sensor objects
@@ -926,7 +929,7 @@ AmclNode::checkPcldReceived(const ros::TimerEvent& event)
   ros::Duration d = ros::Time::now() - last_pcld_received_ts_;
   if(d > pcld_check_interval_)
   {
-    ROS_WARN("No laser scan received (and thus no pose updates have been published) for %f seconds.  Verify that data is being published on the %s topic.",
+    ROS_WARN("No pointcloud received (and thus no pose updates have been published) for %f seconds.  Verify that data is being published on the %s topic.",
              d.toSec(),
              ros::names::resolve(pcld_topic_).c_str());
   }
@@ -1003,6 +1006,7 @@ AmclNode::handleMapMessage(const nav_msgs::OccupancyGrid& msg)
   pf_->pop_err = pf_err_;
   pf_->pop_z = pf_z_;
 
+
   // Initialize the filter
   updatePoseFromServer();
   pf_vector_t pf_init_pose_mean = pf_vector_zero();
@@ -1014,8 +1018,10 @@ AmclNode::handleMapMessage(const nav_msgs::OccupancyGrid& msg)
   pf_init_pose_cov.m[1][1] = init_cov_[1];
   pf_init_pose_cov.m[2][2] = init_cov_[2];
   pf_init(pf_, pf_init_pose_mean, pf_init_pose_cov);
+/*
+pf_init_model(pf_, (pf_init_model_fn_t)AmclNode::uniformPoseGenerator,(void *)map_);
+*/
   pf_init_ = false;
-
 
   // Instantiate the sensor objects
   // Odometry
@@ -1063,13 +1069,13 @@ AmclNode::handleMapMessage(const nav_msgs::OccupancyGrid& msg)
   // In case the initial pose message arrived before the first map,
   // try to apply the initial pose now that the map has arrived.
   applyInitialPose();
-
 }
 
 void
 AmclNode::freeMapDependentMemory()//释放内存(包括地图map_,粒子集pf_,odom_,laser_)
 {
-  if( map_ != NULL ) {
+  if( map_ != NULL ) 
+  {
     map_free( map_ );
     map_ = NULL;
   }
@@ -1232,8 +1238,11 @@ AmclNode::setMapCallback(nav_msgs::SetMap::Request& req,
 void
 AmclNode::pointcloudReceived(const sensor_msgs::PointCloud2ConstPtr& pcldmsg)//pcldmsg
 {
+
+//cout<<"debug info:pointcloudReceived"<<endl;
   last_pcld_received_ts_= ros::Time::now();
-  if( map_ == NULL ) {
+  if( map_ == NULL ) 
+  {
     return;
   }
   boost::recursive_mutex::scoped_lock lr(configuration_mutex_);
@@ -1253,7 +1262,8 @@ AmclNode::pointcloudReceived(const sensor_msgs::PointCloud2ConstPtr& pcldmsg)//p
     tf::Stamped<tf::Pose> depthcamera_pose;//这个数据是六自由度的，
     try
     {
-      this->tf_->transformPose(base_frame_id_, ident, depthcamera_pose);//得到的depthcamera_pose为扫描数据相对于base_frame的位置
+      //得到的depthcamera_pose为扫描数据相对于base_frame的位置
+      this->tf_->transformPose(base_frame_id_, ident, depthcamera_pose);
     }
     catch(tf::TransformException& e)
     {
@@ -1275,10 +1285,15 @@ AmclNode::pointcloudReceived(const sensor_msgs::PointCloud2ConstPtr& pcldmsg)//p
               depthcamera_pose_v.matrix()(0,3),
               depthcamera_pose_v.matrix()(1,3),
               depthcamera_pose_v.matrix()(2,3)  );
-
-
+/*    
+cout<<"Received depthcamera's pose: "
+    <<depthcamera_pose_v.matrix()(0,3)<<" "
+    <<depthcamera_pose_v.matrix()(1,3)<<" "
+    <<depthcamera_pose_v.matrix()(2,3)<<endl;
+*/
     frame_to_depthcamera_[pcldmsg->header.frame_id] = depthcamera_index;
-  } else {
+  } else 
+  {
     // we have the depthcamera pose, retrieve depthcamera index
     depthcamera_index = frame_to_depthcamera_[pcldmsg->header.frame_id];
   }
@@ -1401,7 +1416,7 @@ AmclNode::pointcloudReceived(const sensor_msgs::PointCloud2ConstPtr& pcldmsg)//p
   }
 
   if(resampled || force_publication)
-  {
+  { 
     // Read out the current hypotheses
     double max_weight = 0.0;
     int max_weight_hyp = -1;
@@ -1528,6 +1543,7 @@ AmclNode::pointcloudReceived(const sensor_msgs::PointCloud2ConstPtr& pcldmsg)//p
                                             global_frame_id_, odom_frame_id_);
         this->tfb_->sendTransform(tmp_tf_stamped);
         sent_first_transform_ = true;
+   cout<<"sent tf from map to base_footprint!!!!!!"<<endl;
       }
     }
     else

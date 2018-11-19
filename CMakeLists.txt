@@ -1,7 +1,12 @@
 cmake_minimum_required(VERSION 2.8.3)
 project(hi_amcl3d)
 
-set( CMAKE_CXX_FLAGS "-std=c++11 -march=native -O3" )
+set(CMAKE_CXX_COMPILER "g++")
+set(CMAKE_BUILD_TYPE "Debug")
+
+set(CMAKE_CXX_FLAGS_DEBUG "$ENV{CXX_FLAGS} -std=c++11 -O2 -Wall -g2 -ggdb")
+set(CMAKE_CXX_FLAGS_RELEASE "$ENV{CXX_FLAGS} -std=c++11 -O3 -Wall")
+#set( CMAKE_CXX_FLAGS "-std=c++11 -march=native -O3" )
 
 find_package(catkin REQUIRED
         COMPONENTS

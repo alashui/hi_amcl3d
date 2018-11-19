@@ -32,7 +32,7 @@
 #include <stdlib.h>
 #include <assert.h>
 #include <unistd.h>
-
+#include <time.h>
 //#include <Eigen/core>
 #include <Eigen/Geometry>
 
@@ -126,8 +126,19 @@ double AMCLDepthCamera::NDTmatchModel(AMCLDepthCameraData *data, pf_sample_set_t
   total_weight = 0.0;
 
   // Compute the sample weights
+  std::cout<< "particles number: " << set->sample_count << endl;
+
+struct timespec tpstart;
+struct timespec tpend;	
+
+//printf("clock_gettime time: %.12f\n", timedif);
+
+
   for (uint j = 0; j < set->sample_count; j++)
   {
+
+clock_gettime(CLOCK_REALTIME, &tpstart); 
+
     sample = set->samples + j;
     pose = sample->pose;
 
@@ -145,12 +156,39 @@ double AMCLDepthCamera::NDTmatchModel(AMCLDepthCameraData *data, pf_sample_set_t
 
     p = 0.0;
 
-    //计算粒子权值
+    //*******计算粒子权值*********//
+struct timespec t1;
+struct timespec t2;	
+struct timespec t3;
+struct timespec t4;
+clock_gettime(CLOCK_REALTIME, &t1); 
     self->map3d_->generate_refmap(camera_pose_w_);//根据粒子位姿生成期望观测；
+clock_gettime(CLOCK_REALTIME, &t2); 
+double td1 = (t2.tv_sec-t1.tv_sec)+(t2.tv_nsec-t1.tv_nsec)/1000000000.0;
+cout<<"生成期望观测耗费时间： "<<td1 <<endl;
+
+    // 下采样观测点云数据
+	PointCloud::Ptr data_pcloud_filtered( new PointCloud );   
+    double downsample_resolution = 0.03;
+    boost::shared_ptr<pcl::VoxelGrid<PointT> > voxelgrid(new pcl::VoxelGrid<PointT>());
+    voxelgrid->setLeafSize(downsample_resolution, downsample_resolution, downsample_resolution);
+    voxelgrid->setInputCloud(data->pcloud);
+
+    voxelgrid->filter(*data_pcloud_filtered);
+
+clock_gettime(CLOCK_REALTIME, &t3); 
+double td2 = (t3.tv_sec-t2.tv_sec)+(t3.tv_nsec-t2.tv_nsec)/1000000000.0;
+cout<<"实时观测下采样耗费时间： "<<td2 <<endl;
+
+
+pcl::io::savePCDFileASCII("/home/robot/aa_pcd_amcl3d/map_ref"+std::to_string(j)+".pcd" , *self->map3d_->ref_map_);
+pcl::io::savePCDFileASCII("/home/robot/aa_pcd_amcl3d/map_cur"+std::to_string(j)+".pcd" , *data_pcloud_filtered);
     //匹配观测点云 *(data->pcloud)  和  期望观测点云 *(self->map3d_->ref_map_) 
     // container for point clouds,
     // sensor poses, ndt maps, descriptors and matches
     //std::vector<Pt3D> cloud1,cloud2;
+clock_gettime(CLOCK_REALTIME, &t4);
+
     Eigen::Affine3f sensorPose1=Eigen::Affine3f::Identity();
     Eigen::Affine3f sensorPose2=Eigen::Affine3f::Identity();
     IRON::NDTMapLitef ndtMap1,ndtMap2;
@@ -162,22 +200,24 @@ double AMCLDepthCamera::NDTmatchModel(AMCLDepthCameraData *data, pf_sample_set_t
     // unnecessary overhead if created in a loop over and over again
 
     // build NDT maps
+//cout<<"参考点云共有"<<self->map3d_->ref_map_->size()<<"个点."<<endl;
+//cout<<"观测点云共有"<<data_pcloud_filtered->size()<<"个点."<<endl;
     self->creator_.createMapFromPointValues(&ndtMap1, self->map3d_->ref_map_->points, sensorPose1);
-    self->creator_.createMapFromPointValues(&ndtMap2, data->pcloud->points, sensorPose2);
+    self->creator_.createMapFromPointValues(&ndtMap2, data_pcloud_filtered->points, sensorPose2);
 
     // compute IRON keypoints and descriptors
     self->engine_.computeDescriptors(&descriptors1, ndtMap1);
     self->engine_.computeDescriptors(&descriptors2, ndtMap2);
-    std::cout<< "KEYPOINTS 1: " << descriptors1.size() << " cells\n"
-              << "KEYPOINTS 2: " << descriptors2.size() << " cells\n";
+   // std::cout<< "KEYPOINTS 1: " << descriptors1.size() << " cells\n"
+     //         << "KEYPOINTS 2: " << descriptors2.size() << " cells\n";
 
     // match keypoint descriptors
     self->engine_.computeMatches(&matches, descriptors1, descriptors2);
-    std::cout<< "MATCHES....: " << matches.size() << std::endl;
+    //std::cout<< "MATCHES....: " << matches.size() << std::endl;
 
     // reject outliers
     self->engine_.detectOutliers(&inlierset, matches);
-    std::cout << "INLIERS....: " << inlierset.size() << std::endl;
+    //std::cout << "INLIERS....: " << inlierset.size() << std::endl;
 
     // compute transform from inlierset
     //IRONTransformResultf result = engine.computeTransform(inlierset);
@@ -198,6 +238,14 @@ double AMCLDepthCamera::NDTmatchModel(AMCLDepthCameraData *data, pf_sample_set_t
 
     sample->weight *= p;
     total_weight += sample->weight;
+
+clock_gettime(CLOCK_REALTIME, &tpend);
+double timedif = (tpend.tv_sec-tpstart.tv_sec)+(tpend.tv_nsec-tpstart.tv_nsec)/1000000000.0;
+double td4 = (tpend.tv_sec-t4.tv_sec)+(tpend.tv_nsec-t4.tv_nsec)/1000000000.0;
+cout<<"匹配耗费时间： "<<td4 <<endl;
+cout<<"权值计算总耗费时间： "<<timedif <<endl;
+std::cout<<"第"<<j<<"个粒子权值: "<<sample->weight<<endl;
+cout<<"robot pose : "<<endl<<pose_eigen.matrix()<<endl;
   }
 
   return(total_weight);
