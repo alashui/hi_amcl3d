@@ -96,6 +96,14 @@ target_link_libraries(amcl3d
     ${PCL_LIBRARIES} 
 )
 
+add_executable(ndt_reg_test src/ndt_reg_test.cpp)
+#add_dependencies(amcl3d amcl_gencfg)
+target_link_libraries(ndt_reg_test
+    ${PCL_LIBRARIES} 
+)
+
+
+
 install( TARGETS
     amcl amcl3d amcl_sensors amcl_map amcl_pf
     ARCHIVE DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}

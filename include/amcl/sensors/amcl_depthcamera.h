@@ -68,30 +68,41 @@ class AMCLDepthCamera : public AMCLSensor
                            const float& iron_matchingTolerance,
                            const float& iron_entropyThreshold,
                            const float& iron_neighborSearchRadius,
-                           const std::string& global_map3d_dir   );
+                           const std::string& global_map3d_dir, 
+                           const bool flag_global_process,
+                           
+                           const double &globalmap_downsam_res,
+                           const double &currmap_downsam_res
+                           
+                           );
     virtual bool UpdateSensor(pf_t *pf, AMCLSensorData *data);
   private: 
     static double NDTmatchModel(AMCLDepthCameraData *data, pf_sample_set_t* set);
-    double time;
+    //double time;
     //int parameters;//在这里定义点云配准相关的参数
-    IRON::NDTLiteConfig ndtcfg_;//NDT变换的配置参数
+    static IRON::NDTLiteConfig ndtcfg_;//NDT变换的配置参数
     static IRON::NDTMapLiteCreator<float, std::vector<PointT, Eigen::aligned_allocator<PointT> >, Point3DAccessor> creator_;
 
     // prepare IRON engine
-    IRON::IRONConfig ironcfg_;
+    static IRON::IRONConfig ironcfg_;
     static IRON::IRONEnginef engine_;
 
     // camera pose offset relative to robot
     //pf_vector_t camera_pose_;
     Eigen::Isometry3d camera_pose_;
-    Map3dCloud* map3d_;
+    static Map3dCloud* map3d_;
+
+    //double globalmap_downsam_res_;
+    static double currmap_downsam_res_;
 
 };
 
 IRON::NDTMapLiteCreator<float, std::vector<PointT, Eigen::aligned_allocator<PointT> >, Point3DAccessor > AMCLDepthCamera::creator_( *(new IRON::NDTLiteConfig()) );
 IRON::IRONEnginef AMCLDepthCamera::engine_( *(new IRON::IRONConfig()) );
-
-
+Map3dCloud* AMCLDepthCamera::map3d_(new  Map3dCloud());
+double AMCLDepthCamera::currmap_downsam_res_(0.03);
+IRON::NDTLiteConfig AMCLDepthCamera::ndtcfg_( *(new IRON::NDTLiteConfig()) );
+IRON::IRONConfig AMCLDepthCamera::ironcfg_( *(new IRON::IRONConfig()) );
 }
 
 #endif

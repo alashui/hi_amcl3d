@@ -43,11 +43,14 @@ typedef pcl::PointCloud<PointNormalT> PointCloudWithNormals;
 class Map3dCloud
 {
 	public:
-		Map3dCloud(ros::NodeHandle nh);
+		Map3dCloud();
 		~Map3dCloud(){};
 		
 		//void localization();
-		void load_gloabalmap(const string &globalmap_pcd_dir);
+		void load_gloabalmap(const string &globalmap_pcd_dir,
+							const double &globalmap_downsam_res);
+		void load_gloabalmap_no_process(const string &globalmap_pcd_dir,
+										const double &globalmap_downsam_res);
 		void generate_refmap(const Eigen::Isometry3d &cameraPose);
 		//void set_currmap(const PointCloud::Ptr currCloud,const Eigen::Isometry3d &cameraPose);
 
@@ -58,8 +61,8 @@ class Map3dCloud
 
 		
 		
-		ros::NodeHandle nh_;
-		ros::NodeHandle private_nh_;
+		//ros::NodeHandle nh_;
+		//ros::NodeHandle private_nh_;
 		ros::Publisher global_map_pub_;
 		ros::Publisher ref_map_pub_;
         //ros::Publisher curr_map_pub_;

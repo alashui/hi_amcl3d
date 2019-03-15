@@ -33,32 +33,33 @@
 #include <assert.h>
 #include <unistd.h>
 #include <time.h>
+#include <fstream>
 //#include <Eigen/core>
 #include <Eigen/Geometry>
 
 #include "amcl_depthcamera.h"
+#include "../map/IRON.h"
 
 using namespace amcl;
 
 
 ////////////////////////////////////////////////////////////////////////////////
 // Default constructor
-AMCLDepthCamera::AMCLDepthCamera(): AMCLSensor(),
-                                    ndtcfg_(IRON::NDTLiteConfig()),
-                                    ironcfg_(IRON::IRONConfig())
+AMCLDepthCamera::AMCLDepthCamera(): AMCLSensor()
+
                                     
                                     //creator_(ndtcfg_),
                                     //engine_(ironcfg_)
 {
-    ros::NodeHandle nh;
-    map3d_=new  Map3dCloud(nh);
-    time = 0.0;
+    /*
+    
+    //time = 0.0;
 
     // prepare NDT map creator (take a look into NDTLite.h for an explanation of parameters)
     //NDTLiteConfig ndtcfg;
     // some important variables
-    ndtcfg_.cellSize = 0.1f;          // default: 0.1m x 0.1m x 0.1m cells
-    ndtcfg_.subsamplingFactor =0.8f;// 0.2f; // default: take only 20% of points (drawn randomly)
+    ndtcfg_.cellSize = 0.2f;          // default: 0.1m x 0.1m x 0.1m cells
+    ndtcfg_.subsamplingFactor =0.9f;// 0.2f; // default: take only 20% of points (drawn randomly)
     ndtcfg_.clippingDistance = 5.0f;  // limit memory consumption of NDTLiteCreator by
                                         // throwing away points that are far away from the sensor
     //std::vector<PointT, Eigen::aligned_allocator<PointT> > points;                                    
@@ -71,13 +72,14 @@ AMCLDepthCamera::AMCLDepthCamera(): AMCLSensor(),
     ironcfg_.matchingTolerance = //0.05f;   // RANSAC inlier threshold: higher values will make registration more robust
                                 0.2f;       // but the transform computation more inaccurate; default: half of NDT-cell size
     ironcfg_.entropyThreshold = //0.55f;    // the lower, the more keypoints will be found and the slower registration
-                                0.75f;
+                                0.8f;
     ironcfg_.neighborSearchRadius = //0.5f; // radius around each NDT-cell for searching neighboring cells
-                                    0.8f;
+                                    0.7f;
     //IRONEnginef engine(ironcfg);
     //engine_.setConfig(ironcfg_);
 
     return;
+    */
 }
 
 AMCLDepthCamera::~AMCLDepthCamera()
@@ -90,7 +92,11 @@ void AMCLDepthCamera::SetNDTMatchParam( const float& ndt_cellSize,
                                         const float& iron_matchingTolerance,
                                         const float& iron_entropyThreshold,
                                         const float& iron_neighborSearchRadius,
-                                        const std::string& global_map3d_dir   )
+                                        const std::string& global_map3d_dir,
+                                        const bool flag_global_process,   
+                                        const double &globalmap_downsam_res,
+                                        const double &currmap_downsam_res
+                                        )
 {
     ndtcfg_.cellSize = ndt_cellSize;         
     ndtcfg_.subsamplingFactor = ndt_subsamplingFactor;
@@ -102,7 +108,13 @@ void AMCLDepthCamera::SetNDTMatchParam( const float& ndt_cellSize,
     ironcfg_.neighborSearchRadius = iron_neighborSearchRadius;
     engine_.setConfig(ironcfg_);
 
-    map3d_->load_gloabalmap(global_map3d_dir);
+    if(flag_global_process)
+        map3d_->load_gloabalmap(global_map3d_dir,globalmap_downsam_res);
+    else 
+        map3d_->load_gloabalmap_no_process(global_map3d_dir,globalmap_downsam_res);
+
+    //globalmap_downsam_res_(globalmap_downsam_res);
+    currmap_downsam_res_=currmap_downsam_res;
 }
 ////////////////////////////////////////////////////////////////////////////////
 // Apply the DepthCamera sensor model
@@ -115,9 +127,24 @@ bool AMCLDepthCamera::UpdateSensor(pf_t *pf, AMCLSensorData *data)
 
 double AMCLDepthCamera::NDTmatchModel(AMCLDepthCameraData *data, pf_sample_set_t* set)
 {
+
+ofstream fout("/home/robot/aa_pcd_amcl3d/debug_output.txt");
+
+    // 下采样观测点云数据
+	PointCloud::Ptr data_pcloud_filtered( new PointCloud );   
+    //double downsample_resolution = 0.03;
+    boost::shared_ptr<pcl::VoxelGrid<PointT> > voxelgrid(new pcl::VoxelGrid<PointT>());
+    voxelgrid->setLeafSize(currmap_downsam_res_, currmap_downsam_res_, currmap_downsam_res_);
+    voxelgrid->setInputCloud(data->pcloud);
+
+    voxelgrid->filter(*data_pcloud_filtered);
+pcl::io::savePCDFileASCII("/home/robot/aa_pcd_amcl3d/map_cur.pcd" , *data_pcloud_filtered);
+
+
+
   AMCLDepthCamera *self;
-  double p;
-  double total_weight;
+  //double p(0.0);
+  double total_weight(0);
   pf_sample_t *sample;
   pf_vector_t pose;
 
@@ -126,14 +153,18 @@ double AMCLDepthCamera::NDTmatchModel(AMCLDepthCameraData *data, pf_sample_set_t
   total_weight = 0.0;
 
   // Compute the sample weights
+
   std::cout<< "particles number: " << set->sample_count << endl;
 
+
+fout<< "particles number: " << set->sample_count << endl<<endl;
 struct timespec tpstart;
 struct timespec tpend;	
 
 //printf("clock_gettime time: %.12f\n", timedif);
 
-
+double max_weight(0);
+uint max_index(0);
   for (uint j = 0; j < set->sample_count; j++)
   {
 
@@ -153,101 +184,187 @@ clock_gettime(CLOCK_REALTIME, &tpstart);
 
     //pose = pf_vector_coord_add(self->camera_pose_, pose);//变换后的得到激光传感器的全局位姿
     Eigen::Isometry3d camera_pose_w_( pose_eigen * self->camera_pose_ );//变换后的得到深度相机的全局位姿
+//Eigen::Isometry3d camera_pose_w_( pose_eigen);
 
-    p = 0.0;
 
     //*******计算粒子权值*********//
 struct timespec t1;
 struct timespec t2;	
-struct timespec t3;
 struct timespec t4;
+
+uint desc1_size(0),desc2_size(0),matches_size(0),inlier_size(0);
+
+
 clock_gettime(CLOCK_REALTIME, &t1); 
+
     self->map3d_->generate_refmap(camera_pose_w_);//根据粒子位姿生成期望观测；
+
 clock_gettime(CLOCK_REALTIME, &t2); 
+
+
 double td1 = (t2.tv_sec-t1.tv_sec)+(t2.tv_nsec-t1.tv_nsec)/1000000000.0;
-cout<<"生成期望观测耗费时间： "<<td1 <<endl;
-
-    // 下采样观测点云数据
-	PointCloud::Ptr data_pcloud_filtered( new PointCloud );   
-    double downsample_resolution = 0.03;
-    boost::shared_ptr<pcl::VoxelGrid<PointT> > voxelgrid(new pcl::VoxelGrid<PointT>());
-    voxelgrid->setLeafSize(downsample_resolution, downsample_resolution, downsample_resolution);
-    voxelgrid->setInputCloud(data->pcloud);
-
-    voxelgrid->filter(*data_pcloud_filtered);
-
-clock_gettime(CLOCK_REALTIME, &t3); 
-double td2 = (t3.tv_sec-t2.tv_sec)+(t3.tv_nsec-t2.tv_nsec)/1000000000.0;
-cout<<"实时观测下采样耗费时间： "<<td2 <<endl;
 
 
+
+    double dist_2(0);
+    double angle_2(0);
+
+    if(self->map3d_->ref_map_->points.size()==0)
+    {
+       sample->weight=0; 
+    }
+    else
+    {
+
+    
 pcl::io::savePCDFileASCII("/home/robot/aa_pcd_amcl3d/map_ref"+std::to_string(j)+".pcd" , *self->map3d_->ref_map_);
-pcl::io::savePCDFileASCII("/home/robot/aa_pcd_amcl3d/map_cur"+std::to_string(j)+".pcd" , *data_pcloud_filtered);
-    //匹配观测点云 *(data->pcloud)  和  期望观测点云 *(self->map3d_->ref_map_) 
-    // container for point clouds,
-    // sensor poses, ndt maps, descriptors and matches
-    //std::vector<Pt3D> cloud1,cloud2;
+
+        //匹配观测点云 *(data->pcloud)  和  期望观测点云 *(self->map3d_->ref_map_) 
+        // container for point clouds,
+        // sensor poses, ndt maps, descriptors and matches
+        //std::vector<Pt3D> cloud1,cloud2;
 clock_gettime(CLOCK_REALTIME, &t4);
 
-    Eigen::Affine3f sensorPose1=Eigen::Affine3f::Identity();
-    Eigen::Affine3f sensorPose2=Eigen::Affine3f::Identity();
-    IRON::NDTMapLitef ndtMap1,ndtMap2;
-    IRON::IRONDescriptorVectorf descriptors1,descriptors2;
-    IRON::IRONMatchVectorf matches,inlierset;
+        Eigen::Affine3f sensorPose1=Eigen::Affine3f::Identity();
+        Eigen::Affine3f sensorPose2=Eigen::Affine3f::Identity();
+        IRON::NDTMapLitef ndtMap1,ndtMap2;
+        IRON::IRONDescriptorVectorf descriptors1,descriptors2;
+        IRON::IRONMatchVectorf matches,inlierset;
 
-    // PLEASE NOTE: NDTMapLiteCreator and IRONEngine should exist only once, as
-    // they do some additional computation during construction which would lead to
-    // unnecessary overhead if created in a loop over and over again
+        // PLEASE NOTE: NDTMapLiteCreator and IRONEngine should exist only once, as
+        // they do some additional computation during construction which would lead to
+        // unnecessary overhead if created in a loop over and over again
 
-    // build NDT maps
-//cout<<"参考点云共有"<<self->map3d_->ref_map_->size()<<"个点."<<endl;
-//cout<<"观测点云共有"<<data_pcloud_filtered->size()<<"个点."<<endl;
-    self->creator_.createMapFromPointValues(&ndtMap1, self->map3d_->ref_map_->points, sensorPose1);
-    self->creator_.createMapFromPointValues(&ndtMap2, data_pcloud_filtered->points, sensorPose2);
+        // build NDT maps
+        self->creator_.createMapFromPointValues(&ndtMap1, self->map3d_->ref_map_->points, sensorPose1);
+        self->creator_.createMapFromPointValues(&ndtMap2, data_pcloud_filtered->points, sensorPose2);
 
-    // compute IRON keypoints and descriptors
-    self->engine_.computeDescriptors(&descriptors1, ndtMap1);
-    self->engine_.computeDescriptors(&descriptors2, ndtMap2);
-   // std::cout<< "KEYPOINTS 1: " << descriptors1.size() << " cells\n"
-     //         << "KEYPOINTS 2: " << descriptors2.size() << " cells\n";
+        // compute IRON keypoints and descriptors
+        self->engine_.computeDescriptors(&descriptors1, ndtMap1);
+        self->engine_.computeDescriptors(&descriptors2, ndtMap2);
 
-    // match keypoint descriptors
-    self->engine_.computeMatches(&matches, descriptors1, descriptors2);
-    //std::cout<< "MATCHES....: " << matches.size() << std::endl;
+        //cout<< "KEYPOINTS 1: " << descriptors1.size() << " cells\n"
+        //    << "KEYPOINTS 2: " << descriptors2.size() << " cells\n";
 
-    // reject outliers
-    self->engine_.detectOutliers(&inlierset, matches);
-    //std::cout << "INLIERS....: " << inlierset.size() << std::endl;
+        // match keypoint descriptors
+        self->engine_.computeMatches(&matches, descriptors1, descriptors2);
 
-    // compute transform from inlierset
-    //IRONTransformResultf result = engine.computeTransform(inlierset);
-    //std::cout << "result:  "<< std::endl << result.tf.matrix() << std::endl;
-    uint inlier_size(inlierset.size() );    
-    for (uint i = 0; i < inlier_size; ++i)
-    {
-        p += ((double)1.0/inlier_size) * 
-                exp( (double)-1.0 * 
-                            ( pow( inlierset[i].from->mu()(0)-inlierset[i].to->mu()(0) , 2 ) +
-                              pow( inlierset[i].from->mu()(1)-inlierset[i].to->mu()(1) , 2 ) +
-                              pow( inlierset[i].from->mu()(2)-inlierset[i].to->mu()(2) , 2 )
-                            ) 
-                );
+        //cout<< "MATCHES....: " << matches.size() << std::endl;
+
+        // reject outliers
+        self->engine_.detectOutliers(&inlierset, matches);
+        //cout << "INLIERS....: " << inlierset.size() << std::endl;
+
+        // compute transform from inlierset
+        IRON::IRONTransformResultf result = engine_.computeTransform(inlierset);
+        double pose_x= result.tf.matrix()(0,3);
+		double pose_y= result.tf.matrix()(1,3);
+        double pose_z= result.tf.matrix()(2,3);
+        dist_2=	pose_x*pose_x + pose_y*pose_y +pose_z*pose_z;		
+		double pose_theta= acos(0.5*((result.tf.matrix()(0,0)+result.tf.matrix()(1,1)+result.tf.matrix()(2,2))-1)) ;
+        angle_2=pose_theta*pose_theta;
+        //std::cout << "result:  "<< std::endl << result.tf.matrix() << std::endl;
+        uint inlier_size_(inlierset.size() );  
+/*          
+        for (uint i = 0; i < inlier_size_; ++i)
+        {
+            /*
+            p += exp( (double)-1.0 * ((double)1.0/inlier_size_)*
+                                ( pow( inlierset[i].from->mu()(0)-inlierset[i].to->mu()(0) , 2 ) +
+                                pow( inlierset[i].from->mu()(1)-inlierset[i].to->mu()(1) , 2 ) 
+                               //+ pow( inlierset[i].from->mu()(2)-inlierset[i].to->mu()(2) , 2 )
+                                ) 
+                    );
+            *
+            sum_matches_diff += ( pow( inlierset[i].from->mu()(0)-inlierset[i].to->mu()(0) , 2 ) +
+                                  pow( inlierset[i].from->mu()(1)-inlierset[i].to->mu()(1) , 2 )   );
+        }
+*/
+        if(inlier_size_>=1)
+        {
+/*
+            sum_matches_diff /= inlier_size_;
+            if(sum_matches_diff<0.01)sum_matches_diff=0.01;
+            sample->weight *=(  inlier_size_<10 ? 0:
+                                exp(   (double)-1.0 *
+                                       ( 200.0/((double)inlier_size_*3.0+1.0/sum_matches_diff) )   
+                                   )
+                                
+                             );
+*/             
+
+
+
+            sample->weight *=( //(dist_2>4||angle_2>2.5) ?  0.0001 :
+                                 (   30/( 1.0+10.0/inlier_size_ )
+                                   + exp(   (double)-1.0*(0.1+dist_2 +angle_2))
+                                 ) 
+                             );
+                             
+        }
+        else
+        {
+            sample->weight *=((dist_2>4||angle_2>2.5||inlier_size_<=5) ?  0.0001 : exp(   (double)-1.0*(0.01+dist_2 +angle_2)));
+
+        }
+
+        //sample->weight *= (inlier_size_<3 ? 0:p*(double)1.0/inlier_size_);
+        total_weight += sample->weight;
+
+
+desc1_size=descriptors1.size();
+desc2_size=descriptors2.size();
+matches_size=matches.size();
+inlier_size=inlierset.size();
+
+        self->engine_.releaseDescriptors(&descriptors1);
+        self->engine_.releaseDescriptors(&descriptors2);
     }
-    self->engine_.releaseDescriptors(&descriptors1);
-    self->engine_.releaseDescriptors(&descriptors2);
 
-    sample->weight *= p;
-    total_weight += sample->weight;
+if(sample->weight>max_weight)
+{
+    max_index=j;
+    max_weight=sample->weight;
+}
 
 clock_gettime(CLOCK_REALTIME, &tpend);
 double timedif = (tpend.tv_sec-tpstart.tv_sec)+(tpend.tv_nsec-tpstart.tv_nsec)/1000000000.0;
 double td4 = (tpend.tv_sec-t4.tv_sec)+(tpend.tv_nsec-t4.tv_nsec)/1000000000.0;
-cout<<"匹配耗费时间： "<<td4 <<endl;
-cout<<"权值计算总耗费时间： "<<timedif <<endl;
-std::cout<<"第"<<j<<"个粒子权值: "<<sample->weight<<endl;
-cout<<"robot pose : "<<endl<<pose_eigen.matrix()<<endl;
+
+cout<<"第"<<j<<"个粒子权值： "<<sample->weight<<endl;
+
+fout<<"第"<<j<<"个粒子: "<<endl;
+fout<<"生期望观测时间： "<<td1 <<endl;
+
+fout<<"cloud   size: "<<data->pcloud->points.size()<<endl;
+fout<<"filteredsize: "<<data_pcloud_filtered->points.size()<<endl;
+fout<<"refmap  size: "<<self->map3d_->ref_map_->points.size()<<endl;
+
+fout<<"refmap  KEYPOINTS: " << desc1_size << endl
+    <<"currmap KEYPOINTS: " << desc2_size << endl;
+fout<<"MATCHES.... : " << matches_size << endl;
+fout<<"INLIERS.... : " << inlier_size << endl;
+fout<<"dist and angle : "<<dist_2<<"  "<<angle_2<<endl;
+
+fout<<"粒子权值    : "<<sample->weight<<endl;
+
+fout<<"匹配耗费的时间： "<<td4 <<endl;
+fout<<"权值计算总时间： "<<timedif <<endl;
+
+fout<<"robot pose  : "<<pose.v[0]<<" "<<pose.v[1]<<" "<<pose.v[2]*(180.0/M_PI)<<endl<<endl;
+
+
   }
 
+
+cout<<"最大权值： "<< max_weight<<endl;
+cout<<"位姿： "<<(set->samples + max_index)->pose.v[0]<<" "
+              <<(set->samples + max_index)->pose.v[1]<<" "
+              <<(set->samples + max_index)->pose.v[2]*(180.0/M_PI)<<endl;
+fout<<"最大权值： "<< max_weight<<endl;
+fout<<"位姿： "<<(set->samples + max_index)->pose.v[0]<<" "
+              <<(set->samples + max_index)->pose.v[1]<<" "
+              <<(set->samples + max_index)->pose.v[2]*(180.0/M_PI)<<endl;
   return(total_weight);
 }
 

@@ -3,21 +3,24 @@
 #include <boost/timer.hpp>
 
 //using namespace amcl;		
-Map3dCloud::Map3dCloud(ros::NodeHandle nh):nh_(nh),
+Map3dCloud::Map3dCloud():
 									   global_map_(new PointCloud()),
 									   ref_map_(new PointCloud())
 									   
 {
-    ref_map_pub_ = nh_.advertise<sensor_msgs::PointCloud2>("/refmap", 5, true);	
-	global_map_pub_ = nh_.advertise<sensor_msgs::PointCloud2>("/globalmap", 5, true);
+
     //curr_map_pub_ = nh_.advertise<sensor_msgs::PointCloud2>("/currmap", 5, true);
     
 }
 
 
 //void Map3dCloud::localization(){}
-void Map3dCloud::load_gloabalmap(const string &globalmap_pcd_dir)
+void Map3dCloud::load_gloabalmap(const string &globalmap_pcd_dir,const double &globalmap_downsam_res)
 {
+    ros::NodeHandle nh_;
+	ref_map_pub_ = nh_.advertise<sensor_msgs::PointCloud2>("/refmap", 5, true);	
+	global_map_pub_ = nh_.advertise<sensor_msgs::PointCloud2>("/globalmap", 5, true);
+
     cout<<"load globalmap..."<<endl;
 	PointCloud::Ptr global_map_tmp( new PointCloud );
 	PointCloud::Ptr global_map_filtered( new PointCloud );
@@ -25,9 +28,9 @@ void Map3dCloud::load_gloabalmap(const string &globalmap_pcd_dir)
 //    global_map_tmp->header.frame_id = "map";
 
     // downsample globalmap
-    double downsample_resolution = private_nh_.param<double>("downsample_resolution", 0.03);
+    //double downsample_resolution = private_nh_.param<double>("downsample_resolution", 0.05);
     boost::shared_ptr<pcl::VoxelGrid<PointT> > voxelgrid(new pcl::VoxelGrid<PointT>());
-    voxelgrid->setLeafSize(downsample_resolution, downsample_resolution, downsample_resolution);
+    voxelgrid->setLeafSize(globalmap_downsam_res, globalmap_downsam_res, globalmap_downsam_res);
     voxelgrid->setInputCloud(global_map_tmp);
 
     //PointCloud::Ptr filtered(new PointCloud());
@@ -61,12 +64,35 @@ void Map3dCloud::load_gloabalmap(const string &globalmap_pcd_dir)
     ros::Duration(0.05).sleep();	
     
     cout<<"全局点云共有"<< global_map_->size()<<"个点"<<endl;
+	pcl::io::savePCDFileASCII("/home/robot/aa_pcd_amcl3d/global_map3d.pcd" , *global_map_);
 }
 
+void Map3dCloud::load_gloabalmap_no_process(const string &globalmap_pcd_dir,const double &globalmap_downsam_res)
+{
+    ros::NodeHandle nh_;
+	ref_map_pub_ = nh_.advertise<sensor_msgs::PointCloud2>("/refmap", 5, true);	
+	global_map_pub_ = nh_.advertise<sensor_msgs::PointCloud2>("/globalmap", 5, true);
+
+    cout<<"load globalmap..."<<endl;
+
+    pcl::io::loadPCDFile(globalmap_pcd_dir, *global_map_);
+
+
+ 	global_map_->header.frame_id = "map";
+
+	sensor_msgs::PointCloud2 msg_global_map_;
+	pcl::toROSMsg(*global_map_, msg_global_map_);
+    global_map_pub_.publish(msg_global_map_);
+    ros::spinOnce();
+    ros::Duration(0.05).sleep();	
+    
+    cout<<"全局点云共有"<< global_map_->size()<<"个点"<<endl;
+	//pcl::io::savePCDFileASCII("/home/robot/aa_pcd_amcl3d/global_map3d.pcd" , *global_map_);
+}
 
 void Map3dCloud::generate_refmap(const Eigen::Isometry3d &cameraPose)
 {
-	cout<<"generate refmap..."<<endl;
+	//cout<<"generate refmap..."<<endl;
 	ref_map_->points.clear();
 	//PointCloud::Ptr newCloud( new PointCloud );
 	//pcl::transformPointCloud( *curr_map_, *newCloud,cameraPose.matrix() );//将观测点云变换到全局坐标
@@ -84,7 +110,7 @@ void Map3dCloud::generate_refmap(const Eigen::Isometry3d &cameraPose)
 		pt.y=global_map_c->points[i].y;
 		pt.z=global_map_c->points[i].z;
 		
-		if(pt.z<4.0 && pt.z>0.8)
+		if(pt.z<5.0 && pt.z>0.6)
 		{
 			if(    pt.x > (-0.6*pt.z) && pt.x< (0.6*pt.z) 
 				&& pt.y > (-0.5*pt.z) && pt.y< (0.5*pt.z)     

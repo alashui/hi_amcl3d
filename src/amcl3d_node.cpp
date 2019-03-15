@@ -71,7 +71,7 @@
 // Dynamic_reconfigure
 #include "dynamic_reconfigure/server.h"
 //#include "amcl/AMCLConfig.h"
-#include "amcl/AMCL3DConfig.h"
+#include "hi_amcl3d/AMCL3DConfig.h"
 
 // Allows AMCL to run from bag file
 #include <rosbag/bag.h>
@@ -216,7 +216,8 @@ class AmclNode
     float ndt_cellSize_,ndt_subsamplingFactor_,ndt_clippingDistance_;
     float iron_matchingTolerance_,iron_entropyThreshold_,iron_neighborSearchRadius_;
     std::string global_map3d_dir_;
-
+    bool flag_global_process_;
+    double globalmap_downsam_res_, currmap_downsam_res_;
     //message_filters::Subscriber<sensor_msgs::LaserScan>* laser_scan_sub_;
     //tf::MessageFilter<sensor_msgs::LaserScan>* laser_scan_filter_;
     message_filters::Subscriber<sensor_msgs::PointCloud2>* pointcloud_sub_;
@@ -421,13 +422,17 @@ AmclNode::AmclNode() :
   save_pose_period = ros::Duration(1.0/tmp);
 
   //从参数服务其获取观测模型相关参数
-  private_nh_.param("ndt_cellSize", ndt_cellSize_, 0.1f);
-  private_nh_.param("ndt_subsamplingFactor", ndt_subsamplingFactor_, 0.8f);
+  private_nh_.param("ndt_cellSize", ndt_cellSize_, 0.2f);
+  private_nh_.param("ndt_subsamplingFactor", ndt_subsamplingFactor_, 0.9f);
   private_nh_.param("ndt_clippingDistance", ndt_clippingDistance_, 5.0f);
   private_nh_.param("iron_matchingTolerance", iron_matchingTolerance_, 0.2f);
-  private_nh_.param("iron_entropyThreshold", iron_entropyThreshold_, 0.75f);
-  private_nh_.param("iron_neighborSearchRadius", iron_neighborSearchRadius_, 0.8f);
+  private_nh_.param("iron_entropyThreshold", iron_entropyThreshold_, 0.8f);
+  private_nh_.param("iron_neighborSearchRadius", iron_neighborSearchRadius_, 0.7f);
   private_nh_.param("global_map3d_dir", global_map3d_dir_, std::string("../data/result.pcd"));
+  private_nh_.param("flag_global_process", flag_global_process_,false);
+  private_nh_.param("globalmap_downsam_res", globalmap_downsam_res_, 0.05);
+  private_nh_.param("currmap_downsam_res", currmap_downsam_res_, 0.04);
+
 
   private_nh_.param("min_particles", min_particles_, 10);
   private_nh_.param("max_particles", max_particles_, 100);
@@ -567,7 +572,8 @@ AmclNode::AmclNode() :
   pcld_check_interval_ = ros::Duration(15.0);
   check_pcld_timer_ = nh_.createTimer(pcld_check_interval_, 
                                        boost::bind(&AmclNode::checkPcldReceived, this, _1));                                     
-  
+
+
 }
 
 //动态配置参数服务,重新设置粒子滤波参数,设置运动模型参数,设置观测模型参数,订阅节点等,
@@ -617,6 +623,13 @@ void AmclNode::reconfigureCB(AMCL3DConfig &config, uint32_t level)
   iron_entropyThreshold_ = config.iron_entropyThreshold;
   iron_neighborSearchRadius_ = config.iron_neighborSearchRadius;
   global_map3d_dir_ = config.global_map3d_dir;
+  flag_global_process_=config.flag_global_process;
+  //globalmap_downsam_res_ =config.globalmap_downsam_res;
+  //currmap_downsam_res_ =config.currmap_downsam_res;
+
+
+
+
 /*
   laser_min_range_ = config.laser_min_range;
   laser_max_range_ = config.laser_max_range;
@@ -706,7 +719,10 @@ void AmclNode::reconfigureCB(AMCL3DConfig &config, uint32_t level)
                     iron_matchingTolerance_,
                     iron_entropyThreshold_,
                     iron_neighborSearchRadius_,
-                    global_map3d_dir_   );
+                    global_map3d_dir_,
+                    flag_global_process_,   
+                    globalmap_downsam_res_,
+                    currmap_downsam_res_);
 /*
   // Laser
   delete laser_;
@@ -1018,9 +1034,9 @@ AmclNode::handleMapMessage(const nav_msgs::OccupancyGrid& msg)
   pf_init_pose_cov.m[1][1] = init_cov_[1];
   pf_init_pose_cov.m[2][2] = init_cov_[2];
   pf_init(pf_, pf_init_pose_mean, pf_init_pose_cov);
-/*
+
 pf_init_model(pf_, (pf_init_model_fn_t)AmclNode::uniformPoseGenerator,(void *)map_);
-*/
+
   pf_init_ = false;
 
   // Instantiate the sensor objects
@@ -1040,7 +1056,10 @@ pf_init_model(pf_, (pf_init_model_fn_t)AmclNode::uniformPoseGenerator,(void *)ma
                     iron_matchingTolerance_,
                     iron_entropyThreshold_,
                     iron_neighborSearchRadius_,
-                    global_map3d_dir_   );
+                    global_map3d_dir_,
+                    flag_global_process_,
+                    globalmap_downsam_res_,
+                    currmap_downsam_res_   );
 
   /*
   // Laser  根据设置的传感器概率模型初始化激光数据,主要是设置模型的参数
@@ -1680,12 +1699,25 @@ void
 AmclNode::applyInitialPose()
 {
   boost::recursive_mutex::scoped_lock cfl(configuration_mutex_);
-  if( initial_pose_hyp_ != NULL && map_ != NULL ) {
+
+  if( initial_pose_hyp_ != NULL && map_ != NULL ) 
+  {
     pf_init(pf_, initial_pose_hyp_->pf_pose_mean, initial_pose_hyp_->pf_pose_cov);
                       //Initialize the filter using a guassian
+
+/*/////////////////
+  pf_init_model(pf_, (pf_init_model_fn_t)AmclNode::uniformPoseGenerator,
+                (void *)map_);
+  ROS_INFO("Global initialisation done!");
+
+*///////////////////
+
     pf_init_ = false;
 
     delete initial_pose_hyp_;
     initial_pose_hyp_ = NULL;
   }
+
+
+
 }
